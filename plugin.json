@@ -1,0 +1,105 @@
+{
+  "name": "astrbot_plugin_livingmemory_helper",
+  "description": "LivingMemory 辅助增强插件：记忆系统 + 知识毕业 + 图谱 + 梦境 + Agent Tools",
+  "author": "春雪",
+  "version": "6.3.0",
+  "astrbot_version": ">=4.0.0",
+  "platforms": ["aiocqhttp", "webchat"],
+  "dependencies": ["astrbot_plugin_livingmemory"],
+  "permissions": ["read", "write", "webui"],
+  "config_schema": {
+    "embedding_api_key": {
+      "type": "string",
+      "default": "",
+      "description": "API Key（用于冲突检测向量生成）",
+      "required": false
+    },
+    "embedding_api_base": {
+      "type": "string",
+      "default": "https://api.deepseek.com/v1",
+      "description": "API Base 地址",
+      "required": false
+    },
+    "embedding_model": {
+      "type": "string",
+      "default": "deepseek-v4-flash",
+      "description": "冲突检测使用的模型（可用 deepseek-v4-flash / deepseek-v4-pro）",
+      "required": false
+    },
+    "auto_scan_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否启动时自动开启记忆时间词扫描",
+      "required": false
+    },
+    "auto_inject_lessons": {
+      "type": "boolean",
+      "default": true,
+      "description": "每次对话前自动注入相关的错误教训",
+      "required": false
+    },
+    "max_lessons_per_inject": {
+      "type": "integer",
+      "default": 2,
+      "description": "每次注入的最大教训条数",
+      "required": false
+    }
+  },
+  "webui": {
+    "dashboard": {
+      "title": "LivingMemory 助手",
+      "description": "记忆系统 / 知识毕业 / 错误学习 / 统计总览",
+      "path": "/dashboard"
+    }
+  },
+  "commands": [
+    {
+      "name": "lmem-timeline",
+      "description": "显示记忆时间轴",
+      "usage": "/lmem-timeline [today|yesterday|this-week|last-week|range|date] [detail]",
+      "permission": "user"
+    },
+    {
+      "name": "lmem-lessons",
+      "description": "查看错误学习记录",
+      "usage": "/lmem-lessons [list|clear]",
+      "permission": "user"
+    },
+    {
+      "name": "lmem-export",
+      "description": "导出记忆内容",
+      "usage": "/lmem-export [md|json|obsidian]",
+      "permission": "user"
+    },
+    {
+      "name": "lremind",
+      "description": "从记忆中创建提醒",
+      "usage": "/lremind create [content]",
+      "permission": "user"
+    },
+    {
+      "name": "lmem-search",
+      "description": "搜索记忆内容",
+      "usage": "/记忆 [关键词]",
+      "permission": "user"
+    },
+    {
+      "name": "lmem-report",
+      "description": "生成记忆统计报告",
+      "usage": "/lmem-report [daily|weekly]",
+      "permission": "user"
+    },
+    {
+      "name": "lmem-conflicts",
+      "description": "检测记忆冲突",
+      "usage": "/lmem-conflicts [check]",
+      "permission": "user"
+    },
+    {
+      "name": "lmem-sync",
+      "description": "同步记忆到外部工具",
+      "usage": "/lmem-sync [obsidian]",
+      "permission": "user"
+    }
+  ]
+}

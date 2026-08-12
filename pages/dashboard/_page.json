@@ -1,0 +1,27 @@
+{
+  "title": "LivingMemory 助手",
+  "description": "记忆时间轴 / 错误学习 / 统计总览 / 图谱可视化 / 梦境引擎 / 组装追踪 / 会话摘要 / v5.5 对话Digest / 系统监控 / 语义搜索",
+  "version": "5.7.1",
+  "icon": "icon.png",
+  "routes": [
+    "/page/dashboard",
+    "/page/timeline",
+    "/page/search",
+    "/page/digest",
+    "/page/monitor",
+    "/page/lessons",
+    "/page/export",
+    "/page/reminders",
+    "/page/tags",
+    "/page/settings",
+    "/page/memory/{id}",
+    "/page/graph",
+    "/page/sentiment",
+    "/page/archive",
+    "/page/family",
+    "/page/share",
+    "/page/trace",
+    "/page/summary",
+    "/page/pyramid"
+  ]
+}
