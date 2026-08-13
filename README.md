@@ -1,8 +1,8 @@
-# 🧠 LivingMemory 辅助增强插件 v6.1.0
+# 🧠 LivingMemory 辅助增强插件 v6.2.0
 
 > 给春雪的「第二大脑」，让记忆管理变得像翻日记一样简单 (｀・ω・´)
 
-> 🌟 **v6.1 工具融合升级**：SKILL.md 工具决策树 + 22 工具全景指南 + TencentDB Agent Memory 对标分析
+> 🌟 **v6.2 RRF 融合检索 + 上下文卸载**：借鉴 TencentDB Agent Memory 的 RRF 算法和三层压缩级联
 
 > 🌟 **v6.0 灵魂容器升级**：情感持久化 + 情节记忆 + Ontology 目标层级 + Dream Engine 真实归并（借鉴 AIRI 记忆架构）
 
@@ -12,6 +12,7 @@
 
 | 版本 | 更新内容 |
 |------|----------|
+| v6.2.0 | 🔺 **RRF 融合检索**（FTS5+LIKE+标签 → Reciprocal Rank Fusion k=60 排序，借鉴 TencentDB search-utils.ts）+ **上下文卸载**（三层压缩级联：Mild≥50% / Aggressive≥85% / Emergency≥95%，借鉴 TencentDB offload L3）+ 语法检查全通过 |
 | v6.1.0 | 🔺 **工具融合**：SKILL.md 工具决策树（22 工具全景路由指南）+ TencentDB Agent Memory 对标分析 + 快速决策表 + 常见误区纠正 + 组合拳场景 + 工具使用铁律 |
 | v6.0.0 | 🔺 情感持久化（EmotionStore：memory_emotions 表，-10~+10 impact）+ 情节记忆（EpisodicStore：event_type/participants/location）+ Ontology 目标层级（GOAL/EMOTION 实体 + SUBGOAL_OF/ACHIEVED_BY/BLOCKED_BY/EVOKED 关系）+ Dream Engine 真实 Jaccard 归并 + on_llm_response 自动情感打分 hook |
 | v5.6.0 | 🔺 三层记忆金字塔可视化 (L1/L2/L3) + 记忆溯源链 + 路由冲突修复 |
@@ -544,6 +545,21 @@ A: 不冲突，只读 LivingMemory 数据库，错误教训和知识图谱写入
 ---
 
 ## 📝 更新日志
+
+### v6.2.0 (2026-08-13) — RRF 融合检索 + 上下文卸载
+- 🔬 **RRF 融合检索引擎**（`core/rrf_engine.py`）：借鉴 TencentDB Agent Memory search-utils.ts
+  - 多路并行检索（FTS5 BM25 / LIKE 模糊 / 标签匹配），RRF k=60 融合排序
+  - `rrf_merge()` 泛型函数：`RRF_score = Σ 1/(60 + rank + 1)`
+  - 过采样 3x → RRF 融合 → 取 Top-K
+  - 优雅降级：单路失败跳过，RRF 无结果降级到单路
+- 🗜️ **上下文卸载管理器**（`core/rrf_engine.py` ContextOffloadManager）：借鉴 TencentDB offload L3
+  - 三层压缩级联：Mild (≥50%) → Aggressive (≥85%) → Emergency (≥95%)
+  - `estimate_tokens()` 启发式估算（中文/1.7 + 英文/4）
+  - Mild：截断大块工具结果为摘要
+  - Aggressive：删除旧的非用户消息，保留最近 4 条
+  - Emergency：硬截断到 60% 以下
+- 🔗 **集成到核心召回链**：`main.py inject_lessons()` + `agent_tools.py recall_memory()` 默认使用 RRF
+- 📚 更新 SKILL.md 加入对标分析
 
 ### v6.1.0 (2026-08-13) — 工具融合升级
 - 🔧 **SKILL.md 工具决策树**：22 工具全景路由指南（看到什么→用什么）

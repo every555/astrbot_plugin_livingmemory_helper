@@ -357,60 +357,109 @@ class LivingMemoryReader:
         except Exception:
             return False
 
-    def search_memories(self, query: str, limit: int = 10):
-        """【v5.1→v5.7.2fix】分层全文搜索 — 先检测FTS可用性，避免列名不匹配"""
-        conn = self._connect()
-        results = []
-        fts_usable = self._fts_column_exists(conn)
+    def _multi_strategy_search(self, query: str, limit: int):
+        """【v6.2】多路检索 — 返回各路的原始排序列表，供 RRF 融合。
 
+        复用已有的 FTS5/LIKE 检索逻辑，不重复 SQL。
+        返回格式: [(strategy_name, [results]), ...]
+        """
+        conn = self._connect()
+        lists = []
+
+        # 路径 1: FTS5 BM25
+        fts_usable = self._fts_column_exists(conn)
         if fts_usable:
             try:
-                # 1. FTS5 精确匹配
                 rows = conn.execute(
                     """SELECT d.*, d.memory_tier as tier FROM documents d
                        INNER JOIN documents_fts f ON (f.doc_id = COALESCE(d.doc_id, d.id))
                        WHERE documents_fts MATCH ?
                        ORDER BY rank LIMIT ?""",
-                    (query, limit * 2)
+                    (query, limit),
                 ).fetchall()
                 if not rows:
-                    # 2. FTS5 前缀匹配
                     tokens = query.replace('"', '').split()
-                    if len(tokens) == 1:
-                        prefix_query = f'"{query}"*'
-                    else:
-                        prefix_query = ' '.join(f'{t}*' for t in tokens)
+                    prefix_q = f'"{query}"*' if len(tokens) == 1 else ' '.join(f'{t}*' for t in tokens)
                     rows = conn.execute(
                         """SELECT d.*, d.memory_tier as tier FROM documents d
                            INNER JOIN documents_fts f ON (f.doc_id = COALESCE(d.doc_id, d.id))
                            WHERE documents_fts MATCH ?
                            ORDER BY rank LIMIT ?""",
-                        (prefix_query, limit * 2)
+                        (prefix_q, limit),
                     ).fetchall()
-                    if rows:
-                        logger.debug(f"[LMHelper v6.0] FTS5 前缀匹配 ({len(rows)} 条): '{query}'")
                 if rows:
-                    results = [dict(r) for r in rows]
+                    lists.append(("fts", [self._format_row(dict(r)) for r in rows]))
             except Exception as e:
-                logger.debug(f"[LMHelper] FTS5 检索失败，降级到 LIKE: {e}")
+                logger.debug(f"[LMHelper v6.2] FTS5 路失败: {e}")
+
+        # 路径 2: LIKE 模糊（中文子串优势）
+        try:
+            rows = conn.execute(
+                "SELECT *, memory_tier as tier FROM documents "
+                "WHERE text LIKE ? OR metadata LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (f"%{query}%", f"%{query}%", limit),
+            ).fetchall()
+            if rows:
+                lists.append(("like", [self._format_row(dict(r)) for r in rows]))
+        except Exception:
+            pass
+
+        conn.close()
+        return lists
+
+    def search_memories(self, query: str, limit: int = 10):
+        """【v6.2】RRF 多路融合检索 — 内化多路 + RRF 融合 + Tier 排序。
+
+        升级路径：
+        1. 多路并行检索（FTS5 BM25 + LIKE 模糊）
+        2. RRF k=60 融合排序（借鉴 TencentDB search-utils.ts）
+        3. 降级：RRF 无结果 → 单路 LIKE 兜底
+        4. Tier 优先级二次排序 + 访问追踪
+        """
+        # ── v6.2: 多路检索 + RRF 融合 ──
+        over_retrieve = limit * 3  # 过采样（TencentDB 标准 3x）
+        strategy_lists = self._multi_strategy_search(query, over_retrieve)
+
+        results = []
+        if len(strategy_lists) > 1:
+            # 多路 → RRF 融合
+            from ..core.rrf_engine import rrf_merge
+            ranked_lists = [results_list for _, results_list in strategy_lists]
+            results = rrf_merge(ranked_lists, id_key="id", k=60, limit=over_retrieve)
+            logger.debug(
+                f"[LMHelper v6.2] RRF 融合 {[name for name, _ in strategy_lists]}: "
+                f"{len(results)} 条"
+            )
+        elif len(strategy_lists) == 1:
+            # 单路命中（另一路没结果）
+            results = strategy_lists[0][1][:over_retrieve]
         else:
-            logger.debug(f"[LMHelper v6.0] FTS5 列不匹配，直接使用 LIKE")
+            # 全部失败 → LIKE 终极兜底
+            conn = self._connect()
+            rows = conn.execute(
+                "SELECT *, memory_tier as tier FROM documents WHERE text LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (f"%{query}%", limit * 2),
+            ).fetchall()
+            conn.close()
+            results = [self._format_row(dict(r)) for r in rows]
 
         if not results:
-            # 3. LIKE 兜底
-            rows = conn.execute(
-                "SELECT *, memory_tier as tier FROM documents WHERE text LIKE ? OR metadata LIKE ? "
-                "ORDER BY created_at DESC LIMIT ?",
-                (f"%{query}%", f"%{query}%", limit * 2),
-            ).fetchall()
-            results = [dict(r) for r in rows]
+            return []
 
-        # 4. Tier 优先级排序：L0 > L1 > L2 > L3，同 tier 内按 FTS rank/时间
+        # ── Tier 优先级二次排序：L0 > L1 > L2 > L3 ──
         tier_weight = {0: 1000, 1: 100, 2: 10, 3: 1}
-        results.sort(key=lambda r: tier_weight.get(r.get("tier", 3), 0), reverse=True)
+        results.sort(
+            key=lambda r: (
+                tier_weight.get(r.get("tier", 3), 0),
+                r.get("_rrf_score", 0),
+            ),
+            reverse=True,
+        )
         results = results[:limit]
 
-        # 5. 访问追踪：更新 access_count + last_accessed_at + 强化 memory_atoms
+        # ── 访问追踪 ──
         if results:
             ids = [r["id"] for r in results if r.get("id")]
             if ids:

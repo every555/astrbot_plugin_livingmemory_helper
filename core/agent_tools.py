@@ -515,6 +515,7 @@ class AgentToolImplementations:
         if cached:
             return cached
 
+        # v6.2: search_memories 已内置 RRF 多路融合检索
         results = reader.search_memories(query, limit=limit)
         if not results:
             return f"我在记忆里翻了一圈，没有找到关于「{query}」的明确记录呢～要不要换个关键词试试？"

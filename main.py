@@ -815,7 +815,28 @@ class Main(star.Star):
 
     @filter.on_llm_request()
     async def inject_lessons(self, event: AstrMessageEvent, req):
-        """每次 LLM 请求前注入核心记忆索引 + 教训 + 语义召回 + 近期上下文（v5.2 增强）"""
+        """每次 LLM 请求前注入核心记忆索引 + 教训 + 语义召回 + 近期上下文（v5.2 增强）
+
+        v6.2 升级：
+        - RRF 多路融合检索（FTS5 + LIKE + 标签 → RRF 排序）
+        - 上下文卸载（Context Offload）：超长对话自动压缩工具结果
+        """
+        # ── v6.2: 上下文卸载 — 监控对话长度 ──
+        try:
+            from .core.rrf_engine import ContextOffloadManager
+            if not hasattr(self, '_offload_mgr'):
+                self._offload_mgr = ContextOffloadManager()
+            conversation = req.conversation or []
+            if conversation:
+                level, tokens, max_tokens = self._offload_mgr.check(conversation)
+                if level != "none":
+                    logger.info(
+                        f"[LMHelper v6.2] 上下文压力: {level} "
+                        f"({tokens}/{max_tokens} tokens, {tokens/max_tokens:.0%})"
+                    )
+        except Exception as e:
+            logger.debug(f"[LMHelper v6.2] 上下文卸载检查跳过: {e}")
+
         # 保存消息来源用于主动推送提醒
         self._last_msg_origin = event.unified_msg_origin
         try:
@@ -1015,7 +1036,7 @@ class Main(star.Star):
         # ── 时间感知：解析消息中的时间词 ──
         time_filter = self._parse_time_reference(msg)
 
-        # ── 语义搜索（search_memories 已内置 tier 排序 + 访问追踪） ──
+        # ── v6.2: RRF 多路融合检索（search_memories 已内置 RRF） ──
         search_query = msg
         if time_filter:
             for word in time_filter["raw_words"]:
@@ -1023,7 +1044,6 @@ class Main(star.Star):
         if not search_query:
             search_query = msg
 
-        # v5.1: 多搜一些，然后按 tier 过滤
         raw_results = self.reader.search_memories(search_query, limit=limit * 3)
 
         # ── Tier 感知过滤 ──
