@@ -1,8 +1,10 @@
-# 🧠 LivingMemory 辅助增强插件 v5.6.0
+# 🧠 LivingMemory 辅助增强插件 v6.1.0
 
 > 给春雪的「第二大脑」，让记忆管理变得像翻日记一样简单 (｀・ω・´)
 
-> 🌟 **v5.6 重磅升级**：三层记忆金字塔可视化 (L1/L2/L3) + 记忆溯源链 + 路由修复
+> 🌟 **v6.1 工具融合升级**：SKILL.md 工具决策树 + 22 工具全景指南 + TencentDB Agent Memory 对标分析
+
+> 🌟 **v6.0 灵魂容器升级**：情感持久化 + 情节记忆 + Ontology 目标层级 + Dream Engine 真实归并（借鉴 AIRI 记忆架构）
 
 ---
 
@@ -10,6 +12,8 @@
 
 | 版本 | 更新内容 |
 |------|----------|
+| v6.1.0 | 🔺 **工具融合**：SKILL.md 工具决策树（22 工具全景路由指南）+ TencentDB Agent Memory 对标分析 + 快速决策表 + 常见误区纠正 + 组合拳场景 + 工具使用铁律 |
+| v6.0.0 | 🔺 情感持久化（EmotionStore：memory_emotions 表，-10~+10 impact）+ 情节记忆（EpisodicStore：event_type/participants/location）+ Ontology 目标层级（GOAL/EMOTION 实体 + SUBGOAL_OF/ACHIEVED_BY/BLOCKED_BY/EVOKED 关系）+ Dream Engine 真实 Jaccard 归并 + on_llm_response 自动情感打分 hook |
 | v5.6.0 | 🔺 三层记忆金字塔可视化 (L1/L2/L3) + 记忆溯源链 + 路由冲突修复 |
 | v5.5.2 | 监控数据修复（session_summary查询）+ 富配置面板扩展（检索/摘要/Dream Engine共11组26项）+ _conf_schema.json 全量同步 |
 | v5.5.1 | 按需性能基准测试（BM25/DB/向量/混合 P95）+ 双索引健康面板 |
@@ -28,7 +32,27 @@
 
 ## 🎯 我能做什么
 
-### 📡 v3.0 新功能：Agent Tools
+### 🆕 v6.0 核心特性：情感持久化 + 情节记忆
+
+借鉴 Project AIRI 记忆架构，给记忆系统加上情感维度和情节维度：
+
+| 模块 | 文件 | 功能 |
+|------|------|------|
+| **EmotionStore** | `core/emotion_store.py` | 每条记忆自动打情感标签（happy/sad/angry/...），持久化到 `emotions.db`，支持趋势查询和热力图 |
+| **EpisodicStore** | `core/episodic_store.py` | 情节记忆扩展：event_type（对话/开发/休息/...）+ participants + location |
+| **Ontology 目标层级** | `core/ontology.py` | 新增 GOAL/EMOTION 实体类型 + SUBGOAL_OF/ACHIEVED_BY/BLOCKED_BY/EVOKED 关系，支持目标树 |
+| **自动情感打分** | `main.py` on_llm_response hook | 每次 AI 回复后自动批量打分（跳过已打分的，每次最多5条） |
+| **Dream Engine 归并** | `core/dream_engine.py` | Jaccard 文本相似度归并（≥60% 标记 merged_into，不物理删除） |
+
+数据存储位置：`data/plugin_data/astrbot_plugin_livingmemory_helper/`
+- `emotions.db` — 情感持久化数据库
+- `episodic.db` — 情节记忆数据库
+
+---
+
+### 📡 v3.0 Agent Tools
+
+> 💡 **v6.1 新增**：完整 22 工具决策树请看 [SKILL.md](SKILL.md) 和本文档 [Agent Tools 全景指南](#-agent-tools-全景指南22-个工具)
 
 LLM可以**直接调用**这些工具，不需要通过命令：
 
@@ -283,27 +307,125 @@ v3.0为错误教训新增了**学习分类**，让记忆更有条理：
 
 ---
 
-## 📡 Agent Tools 详解
+## 📡 Agent Tools 全景指南（22 个工具）
 
-### haruyuki_recall_memory
-回忆过去的某段共同经历。
-- **参数**：`query`（关键词）、`limit`（返回条数，默认5）
-- **使用场景**：用户问"我们之前聊过什么"、"你记得XX吗"
+> 📖 详细工具决策树请看 `SKILL.md` — 里面有"看到什么→用什么"的快速路由表
 
-### haruyuki_today_summary
-获取今天（或指定日期）的共同经历概览。
-- **参数**：`date`（日期，格式YYYY-MM-DD，默认今天）
-- **使用场景**：用户问"今天聊了什么"、"我们今天做了什么"
+### 第一层：记忆核心引擎（4 工具）
 
-### haruyuki_search_memory
-跨时间段搜索记忆。
-- **参数**：`query`（关键词）、`days`（回看天数，默认30）
-- **使用场景**：用户问"关于XX我们聊过几次"、"最近XX话题的进展"
+| 工具 | 功能 | 触发关键词 |
+|------|------|------------|
+| `haruyuki_recall_memory` | 精准召回特定记忆 | "还记得XX吗" "我们之前聊过" |
+| `haruyuki_today_summary` | 当日时间线概览 | "今天聊了什么" "今天做了什么" |
+| `haruyuki_search_memory` | 跨天广泛搜索 | "关于XX聊过几次" "最近XX话题" |
+| `haruyuki_sentiment_trend` | 情感趋势分析 | "最近开心吗" "状态怎么样" |
 
-### haruyuki_sentiment_trend
-了解最近的记忆情感趋势。
-- **参数**：`days`（回看天数，默认14）
-- **使用场景**：用户问"最近我们过得开心吗"、"最近状态怎么样"
+### 第二层：记忆深度分析（6 工具）
+
+| 工具 | 功能 | 触发关键词 |
+|------|------|------------|
+| `haruyuki_profile` | 记忆画像（稳定特征） | "你了解我什么" "我是什么样的人" |
+| `haruyuki_prophecy` | 预言与验证 | "你有什么预言" "我的规律" |
+| `haruyuki_expression` | 表达风格快照 | "你怎么说话的" "你的风格" |
+| `haruyuki_causal_chain` | 因果证据链 | "这事从哪来的" "后来怎么样了" |
+| `haruyuki_memory_trace` | 记忆溯源链 | "这条记忆哪来的" "信息来源" |
+| `haruyuki_conflict_check` | 矛盾检测 | "我自相矛盾吗" "记忆一致吗" |
+
+### 第三层：记忆管理（4 工具）
+
+| 工具 | 功能 | 触发关键词 |
+|------|------|------------|
+| `haruyuki_reminder` | 提醒系统 | "帮我设提醒" "有什么提醒" |
+| `haruyuki_archive` | 归档管理 | "整理记忆" "清理旧记忆" |
+| `haruyuki_reinforce_memory` | 间隔重复复习 | （到复习时间自动触发） |
+| `haruyuki_knowledge` | 知识毕业系统 | "学到了什么" "经验总结" |
+
+### 第四层：知识图谱（6 工具）
+
+| 工具 | 功能 | 触发关键词 |
+|------|------|------------|
+| `haruyuki_ontology_create` | 创建实体 | "记住这个人/项目" |
+| `haruyuki_ontology_query` | 查询实体 | "告诉我关于XX" |
+| `haruyuki_ontology_link` | 关联实体 | "把XX和XX关联" |
+| `haruyuki_ontology_search` | 搜索实体 | "列出所有任务/人" |
+| `haruyuki_ontology_related` | 关系遍历 | "XX有什么相关" "谁负责" |
+| `haruyuki_ontology_stats` | 统计 | "知识图谱多少数据" |
+
+### 第五层：家庭协作（2 工具）
+
+| 工具 | 功能 | 触发关键词 |
+|------|------|------------|
+| `haruyuki_family_status` | 家庭反馈回路 | "家庭反馈" "家人互动" |
+| `haruyuki_family_meeting` | 家庭例会日报 | "例会" "今天全家干了啥" "日报" |
+
+---
+
+## 🔬 TencentDB Agent Memory 对标分析
+
+> 参考 [TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) (21.1k star)
+
+### 他们有而我们已实现 ✅
+
+| 概念 | 他们 | 我们 | 状态 |
+|------|------|------|------|
+| 分层记忆架构 | L0→L1→L2→L3 | L0工作/L1活跃/L2情景/L3归档 | ✅ 架构一致 |
+| 向量检索 | 向量索引 | FTS5 + 向量索引 | ✅ |
+| 情感分析 | 情绪标签 | EmotionEngine 11种情绪 | ✅ 更丰富 |
+| 摘要压缩 | 会话摘要 | SessionSummary 30分钟自动 | ✅ |
+| 知识管理 | Skill 资产 | KnowledgeGraduator 知识毕业 | ✅ |
+
+### 他们有而我们没有（TODO 路线图）
+
+| 概念 | 他们的实现 | 我们的计划 | 优先级 |
+|------|-----------|-----------|--------|
+| **BM25+向量 RRF 融合** | Reciprocal Rank Fusion 混合检索 | 集成到 livingmemory_reader | ★★★ |
+| **上下文卸载** | 工具结果压缩为摘要+索引 | 工具返回精简化 | ★★★ |
+| **记忆冷启动** | 批量导入已有内容 | cold_start 工具 | ★★☆ |
+| **场景化加载** | 按任务场景加载不同记忆 | memory_loadout 配置 | ★★☆ |
+| **技能版本化** | Skill 带版本历史 | knowledge 加 version 字段 | ★☆☆ |
+| **Mermaid 画布** | 任务状态可视化 | 可选 | ☆☆☆ |
+
+### 我们有而他们没有的（春雪原创 🌸）
+
+| 独有功能 | 说明 |
+|----------|------|
+| **因果链** (causal_chain) | 事件来龙去脉双向追溯 |
+| **预言验证** (prophecy) | 基于规律预测未来，到期自动回溯验证 |
+| **冲突检测** (conflict_check) | 新旧记忆矛盾自动发现 |
+| **表达风格联动** (expression) | 记忆画像驱动说话方式 |
+| **家庭协作** (family) | 21 个模块互相反馈的生态系统 |
+| **梦境引擎** (dream_engine) | Jaccard 相似度记忆归并 |
+| **间隔重复** (reinforce_memory) | DeepTutor 算法的记忆巩固 |
+
+---
+
+## 🔧 工具使用原则
+
+### 铁律 1：先选对工具
+```
+❌ 什么都用 recall_memory
+✅ 精准找用 recall，广泛找用 search，要洞察用 profile/prophecy
+```
+
+### 铁律 2：结构化 vs 时间线
+```
+❌ 橘子问"认识哪些人" → recall_memory("认识的人")
+✅ 橘子问"认识哪些人" → ontology_search("Person")
+```
+
+### 铁律 3：能用组合拳
+```
+橘子问"上次吵架怎么回事"：
+1. recall_memory("吵架") → 召回记忆
+2. causal_chain("吵架") → 追溯因果
+3. conflict_check() → 检查矛盾
+```
+
+### 铁律 4：分析 vs 原始
+```
+❌ 要洞察 → recall_memory（只给原始记录）
+✅ 要洞察 → profile / prophecy / sentiment_trend（给提炼后的分析）
+```
 
 ---
 
@@ -362,29 +484,33 @@ v3.0为错误教训新增了**学习分类**，让记忆更有条理：
 
 ```
 astrbot_plugin_livingmemory_helper/
-├── main.py                         # 插件入口（v5.4 组装追踪+会话摘要+WebUI路由）
-├── metadata.yaml
-├── _conf_schema.json               # WebUI 配置
+├── main.py                         # 插件入口（v6.0: 情感打分hook + 全功能集成）
+├── metadata.yaml                   # 版本: 6.1.0
+├── SKILL.md                        # v6.1: 22工具决策树 + 使用铁律 + 对标分析
+├── _conf_schema.json               # WebUI 配置（26项）
 ├── README.md                       # 本文档
-├── dream_engine.py                 # v4.0: 梦境引擎（清洗/聚类/情感分析/安全保底）
 ├── core/
-│   ├── agent_tools.py              # v3.0: 4个Agent Tool实现
-│   ├── ontology.py                 # v3.1: 知识图谱模块 + 6个Agent Tool
-│   ├── error_learner.py            # 自建 SQLite 错误学习（v3.0: 学习分类+优先级）
-│   ├── exporter.py                 # MD/JSON/Obsidian 导出
-│   ├── reminder.py                 # 记忆→提醒联动
-│   ├── reporter.py                 # 日报/周报统计
+│   ├── agent_tools.py              # Agent Tool 实现（recall/today/search/sentiment/reminder/trace/reinforce/archive/knowledge）
+│   ├── agent_tools_v2.py           # Agent Tool 实现 V2（causal_chain/conflict/profile/prophecy/expression/family）
+│   ├── ontology.py                 # v3.1+v6.0: 知识图谱 + GOAL/EMOTION层级
+│   ├── emotion_engine.py           # v5.7: 上下文感知情感引擎（11种情绪+否定/转折/程度）
+│   ├── emotion_store.py            # v6.0: 情感持久化（memory_emotions表，UPSERT幂等）
+│   ├── episodic_store.py           # v6.0: 情节记忆扩展（event_type/participants/location）
+│   ├── dream_engine.py             # v4.0+v6.0: 梦境引擎 + Jaccard归并
+│   ├── error_learner.py            # 错误学习系统（学习分类+优先级+WAL协议）
+│   ├── code_checker.py             # 代码语法检查
 │   ├── conflict_detector.py        # 规则匹配冲突检测
+│   ├── exporter.py                 # MD/JSON/Obsidian 导出
 │   ├── external_sync.py            # Obsidian 同步
-│   ├── trace_manager.py            # v5.3: 组装追踪管理器
-│   └── session_summary.py          # v5.3: 会话摘要管理器
+│   ├── family_bus.py               # 家庭消息总线
+│   ├── knowledge_graduator.py      # 知识毕业系统
+│   ├── reminder.py                 # 记忆→提醒联动
+│   └── reporter.py                 # 日报/周报统计
 ├── utils/
-│   ├── livingmemory_reader.py      # SQLite 读取工具
+│   ├── livingmemory_reader.py      # SQLite 读取工具（FTS5 + 图增强召回 + Tier重算）
 │   └── formatter.py                # 时间轴格式化
 └── pages/
-    └── dashboard/                  # v4.0: WebUI前端
-        ├── index.html              # 10个页面的SPA（v5.3: +Trace +Summary）
-        └── icon.png                # 插件图标
+    └── dashboard/                  # v4.0: WebUI前端（10+页面SPA）
 ```
 
 ---
@@ -418,6 +544,28 @@ A: 不冲突，只读 LivingMemory 数据库，错误教训和知识图谱写入
 ---
 
 ## 📝 更新日志
+
+### v6.1.0 (2026-08-13) — 工具融合升级
+- 🔧 **SKILL.md 工具决策树**：22 工具全景路由指南（看到什么→用什么）
+  - 快速决策表、工具生态五层架构、常见误区纠正（5个典型错误）
+  - 组合拳场景（4 个典型场景的多工具协同方案）
+  - 工具使用铁律（4 条核心原则）
+- 🔬 **TencentDB Agent Memory 对标分析**：参考腾讯开源记忆项目（21.1k star）
+  - 识别 6 个可借鉴概念（RRF 融合检索/上下文卸载/冷启动/场景化加载/技能版本化/Mermaid 画布）
+  - 梳理 7 个我们独有的功能（因果链/预言/冲突检测/表达联动/家庭协作/梦境引擎/间隔重复）
+- 📚 **README 全面更新**：22 工具五层分类表 + 对标分析 + 使用原则
+
+### v6.0.0 (2026-08-11) — 灵魂容器升级
+- 💖 **EmotionStore（情感持久化）**：每条记忆自动打情感标签（happy/sad/angry/frustrated/tired/neutral），存储到 `emotions.db`
+  - `memory_emotions` 表：memory_id + emotional_impact(-10~+10) + emotion_type + polarity + intensity + confidence
+  - UPSERT 幂等写入，支持趋势查询（get_trend）和热力图（get_heatmap）
+  - on_llm_response hook 自动批量打分（跳过已打分，每次最多5条）
+- 📖 **EpisodicStore（情节记忆）**：`episodic.db`，扩展 event_type（对话/开发/休息/...）+ participants + location
+- 🎯 **Ontology 目标层级**：新增 GOAL/EMOTION 实体类型 + SUBGOAL_OF/ACHIEVED_BY/BLOCKED_BY/EVOKED 关系
+  - 新方法：`create_goal()` / `get_goal_tree()` / `update_goal_status()`
+- 🌙 **Dream Engine 真实归并**：`_consolidate_similar()` 从空壳→真实 Jaccard 文本相似度归并（≥60%标记 merged_into，不物理删除）
+- 🏷️ **版本号统一**：所有运行时日志从 v4.0~v5.7.2fix 混用 → 统一为 v6.0
+- 🏗️ 借鉴 [Project AIRI](https://github.com/moeru-ai/airi) 记忆架构设计（memory-pgvector 七表模型 + context-registry）
 
 ### v5.5.2 (2026-07-20)
 - 🐛 修复监控页面 session_summary 查询（atom_type→metadata.atom_subtype）

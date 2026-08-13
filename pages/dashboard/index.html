@@ -104,7 +104,7 @@ body.light-theme .weekly-bar-neg{background-image:linear-gradient(#ff5a5a,#ff5a5
 .page-panel h3{font-size:15px;color:#e2e4f0;margin-bottom:14px;font-weight:600}
 /* ── v2.1 家庭生态页 ── */
 .family-page{max-width:1000px;margin:0 auto}
-.family-stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.family-stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
 .fam-stat-card{background:#131420;border:1px solid #1f2235;border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:border-color .2s}
 .fam-stat-card:hover{border-color:var(--accent,#8a7cff)}
 .fam-stat-val{font-size:26px;font-weight:700;color:#e2e4f0}
@@ -2150,34 +2150,54 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
       <!-- ===== 家庭生态（v2.1：反馈回路+归档员+角色分工+家庭例会） ===== -->
       <div v-show="route==='family'" class="family-page">
+        <!-- 顶部刷新栏 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <span style="font-size:13px;color:#5c6080" v-if="famLastRefresh">
+            最后刷新: {{famLastRefresh}}
+          </span>
+          <span v-else></span>
+          <button class="btn ghost sm" @click="loadFamilyData()" :disabled="famLoading">
+            {{famLoading ? '⏳ 加载中...' : '🔄 刷新数据'}}
+          </button>
+        </div>
+
         <div class="family-stats-row">
           <div class="fam-stat-card" @click="famDetailView='roles'">
             <div class="fam-stat-val">{{famRoles.length}}</div>
-            <div class="fam-stat-lbl">👨‍👩‍👧‍👦 家人</div>
+            <div class="fam-stat-lbl">家人</div>
           </div>
           <div class="fam-stat-card" @click="famDetailView='feedback'">
             <div class="fam-stat-val">{{famFeedbackTotal}}</div>
-            <div class="fam-stat-lbl">🔄 反馈互动</div>
+            <div class="fam-stat-lbl">反馈互动</div>
           </div>
           <div class="fam-stat-card" @click="famDetailView='archive'">
             <div class="fam-stat-val">{{famArchiveTotal}}</div>
-            <div class="fam-stat-lbl">📦 归档记忆</div>
+            <div class="fam-stat-lbl">归档记忆</div>
+          </div>
+          <div class="fam-stat-card" @click="famDetailView='conflicts'">
+            <div class="fam-stat-val" :style="{color: famConflicts.pending > 0 ? '#ff6b9d' : ''}">{{famConflicts.pending}}</div>
+            <div class="fam-stat-lbl">待处理冲突</div>
           </div>
           <div class="fam-stat-card" @click="famDetailView='meetings'">
             <div class="fam-stat-val">{{famMeetings.length}}</div>
-            <div class="fam-stat-lbl">📅 例会日报</div>
+            <div class="fam-stat-lbl">例会日报</div>
           </div>
         </div>
 
         <!-- 最新例会日报 -->
         <div v-if="famLatestMeeting" class="page-panel">
           <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <span class="panel-title" style="font-weight:600">📋 最新例会日报 · {{famLatestMeeting.report_date}}</span>
-            <button class="btn ghost sm" @click="loadFamilyData()">🔄 刷新</button>
+            <span class="panel-title" style="font-weight:600">最新例会日报 {{famLatestMeeting.report_date}}</span>
+            <button class="btn ghost sm" @click="famGenerateMeeting()" :disabled="famMeetingLoading">
+              {{famMeetingLoading ? '生成中...' : '生成今日日报'}}
+            </button>
           </div>
           <div class="fam-meeting-summary" style="white-space:pre-wrap;line-height:1.7;color:#aab;font-size:13px">{{famLatestMeeting.summary}}</div>
         </div>
-        <div v-else-if="!famLoading" class="empty-state"><div class="icon">📋</div>还没有例会日报～ 每天 0 点自动生成</div>
+        <div v-else-if="!famLoading" class="empty-state">
+          <div class="icon">还没有例会日报</div>
+          <button class="btn sm" style="margin-top:12px" @click="famGenerateMeeting()" :disabled="famMeetingLoading">生成今日日报</button>
+        </div>
 
         <!-- 双栏：家族名册 + 反馈动态 -->
         <div class="family-grid">
@@ -2218,23 +2238,125 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div class="fam-detail-card">
             <div class="fam-detail-header">
               <span class="fam-detail-title">
-                {{famDetailView==='roles'?'👨‍👩‍👧‍👦 家族名册':famDetailView==='feedback'?'🔄 反馈互动统计':famDetailView==='archive'?'📦 归档台账':'📅 最近例会'}}
+                {{famDetailView==='roles'?'家族名册':famDetailView==='feedback'?'反馈互动统计':famDetailView==='archive'?'归档台账':famDetailView==='conflicts'?'冲突检测记录':'最近例会'}}
               </span>
-              <button class="fam-detail-close" @click="famDetailView=null">×</button>
+              <button class="fam-detail-close" @click="famDetailView=null">x</button>
             </div>
-            <div v-if="famDetailView==='feedback'" class="fam-detail-body">
-              <div v-if="famFeedback.by_type" class="fam-kv">
-                <div v-for="(c,t) in famFeedback.by_type" :key="t" class="fam-kv-item"><span class="k">{{t}}</span><span class="v">{{c}}</span></div>
+
+            <!-- 家族名册详情 -->
+            <div v-if="famDetailView==='roles'" class="fam-detail-body">
+              <div v-for="r in famRoles" :key="r.id || r.tool_name" class="fam-role" style="margin-bottom:10px">
+                <div class="fam-role-head">
+                  <span class="fam-role-name">{{r.member_name}}</span>
+                  <span class="fam-role-tool">{{r.tool_name}}</span>
+                </div>
+                <div class="fam-role-desc">{{r.role}}</div>
+                <div v-if="r.cooperates_with && r.cooperates_with.length" class="fam-role-coop">
+                  协作: {{r.cooperates_with.join(' / ')}}
+                </div>
+              </div>
+              <div v-if="!famRoles.length" class="empty-state">家族名册还没建立</div>
+            </div>
+
+            <!-- 反馈互动详情 -->
+            <div v-else-if="famDetailView==='feedback'" class="fam-detail-body">
+              <div v-if="famFeedback.by_type && Object.keys(famFeedback.by_type).length" style="margin-bottom:16px">
+                <div style="font-size:12px;color:#5c6080;margin-bottom:8px">事件类型分布</div>
+                <div class="fam-kv">
+                  <div v-for="(c,t) in famFeedback.by_type" :key="t" class="fam-kv-item"><span class="k">{{t}}</span><span class="v">{{c}} 次</span></div>
+                </div>
+              </div>
+              <div v-if="famFeedback.by_pair && Object.keys(famFeedback.by_pair).length" style="margin-bottom:16px">
+                <div style="font-size:12px;color:#5c6080;margin-bottom:8px">家人互动排行</div>
+                <div class="fam-kv">
+                  <div v-for="(c,p) in famFeedback.by_pair" :key="p" class="fam-kv-item"><span class="k">{{p}}</span><span class="v">{{c}} 次</span></div>
+                </div>
+              </div>
+              <div style="font-size:12px;color:#5c6080;margin-bottom:8px">最近 {{famFeedbackRows.length}} 条反馈</div>
+              <div v-for="fb in famFeedbackRows" :key="fb.id" class="fam-fb">
+                <span class="fam-fb-main">
+                  <span class="fam-fb-mod">{{fb.from_module}}</span>
+                  <span class="fam-fb-arrow">-></span>
+                  <span class="fam-fb-mod">{{fb.to_module}}</span>
+                  <span class="fam-fb-type">{{fb.event_type}}</span>
+                </span>
+                <span class="fam-fb-time">{{(fb.created_at||'').slice(0,16)}}</span>
+              </div>
+              <div v-if="!famFeedbackRows.length" class="empty-state">还没有反馈互动</div>
+            </div>
+
+            <!-- 归档台账详情 + 手动操作 -->
+            <div v-else-if="famDetailView==='archive'" class="fam-detail-body">
+              <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+                <button class="btn purple sm" @click="famArchiveScan()" :disabled="famScanning">
+                  {{famScanning ? '扫描中...' : '扫描沉睡记忆'}}
+                </button>
+              </div>
+              <div v-if="famScanResult" style="background:#161728;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#aab;line-height:1.6">
+                <span v-if="famScanResult.status==='ok' || famScanResult.status==='success'">
+                  扫描完成: 新增 {{famScanResult.new_candidates||0}} 个候选
+                  <span v-if="famScanResult.candidates && famScanResult.candidates.length">
+                    (共 {{famScanResult.candidates.length}} 条)
+                  </span>
+                </span>
+                <span v-else style="color:#ff6b9d">{{famScanResult.msg || famScanResult.message || '扫描完成'}}</span>
+              </div>
+              <div v-if="famArchive.breakdown && Object.keys(famArchive.breakdown).length" style="margin-bottom:16px">
+                <div style="font-size:12px;color:#5c6080;margin-bottom:8px">状态分布</div>
+                <div class="fam-kv">
+                  <div v-for="(c,s) in famArchive.breakdown" :key="s" class="fam-kv-item"><span class="k">{{s}}</span><span class="v">{{c}}</span></div>
+                  <div class="fam-kv-item"><span class="k">待处理</span><span class="v">{{famArchive.pending||0}}</span></div>
+                </div>
+              </div>
+              <div v-else class="empty-state">暂无归档数据，点击上方按钮扫描沉睡记忆</div>
+            </div>
+
+            <!-- 冲突检测详情 -->
+            <div v-else-if="famDetailView==='conflicts'" class="fam-detail-body">
+              <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+                <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">待处理</span><span class="v" style="color:#ff6b9d">{{famConflicts.pending}}</span></div>
+                <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">已确认</span><span class="v">{{famConflicts.confirmed}}</span></div>
+                <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">已解决</span><span class="v">{{famConflicts.resolved}}</span></div>
+                <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">总计</span><span class="v">{{famConflicts.total}}</span></div>
+              </div>
+              <div v-if="famConflicts.recent && famConflicts.recent.length" style="font-size:12px;color:#5c6080;margin-bottom:8px">最近 {{famConflicts.recent.length}} 条冲突</div>
+              <div v-for="c in famConflicts.recent" :key="c.id" style="background:#161728;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:13px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <span style="font-size:11px;padding:1px 7px;border-radius:20px" :style="{background: c.status==='candidate'?'rgba(255,107,157,.12)':'rgba(138,124,255,.12)',color: c.status==='candidate'?'#ff6b9d':'#8a7cff'}">{{c.status}}</span>
+                  <span style="font-size:11px;color:#5c6080">{{c.conflict_type || ''}} {{c.confidence ? (c.confidence*100).toFixed(0)+'%' : ''}}</span>
+                </div>
+                <!-- 确认/处理时间标注 -->
+                <div v-if="c.resolved_at && c.resolution" style="font-size:11px;color:#8a7cff;background:rgba(138,124,255,.06);border-radius:4px;padding:3px 8px;margin-bottom:4px">
+                  {{c.resolution.note || c.resolution.action}}
+                </div>
+                <div v-if="c.reason" style="color:#aab;line-height:1.5;margin-bottom:6px">{{c.reason}}</div>
+                <div v-if="c.new_content" style="color:#d0d0e8;font-size:12px;border-left:2px solid #ff6b9d;padding-left:8px;margin-top:4px;line-height:1.6">
+                  <span style="color:#ff6b9d;font-size:10px">新记忆</span><br>{{c.new_content}}
+                </div>
+                <div v-if="c.old_content" style="color:#d0d0e8;font-size:12px;border-left:2px solid #5c6080;padding-left:8px;margin-top:4px;line-height:1.6">
+                  <span style="color:#8a8aaa;font-size:10px">旧记忆</span><br>{{c.old_content}}
+                </div>
+                <!-- 操作按钮 -->
+                <div v-if="c.status==='candidate'" style="display:flex;gap:6px;margin-top:8px">
+                  <button class="btn small" style="background:#ff6b9d;padding:4px 10px;font-size:11px" @click="famResolveConflict(c.id, 'confirmed')">确认冲突</button>
+                  <button class="btn ghost" style="padding:4px 10px;font-size:11px" @click="famResolveConflict(c.id, 'resolved')">已解决</button>
+                  <button class="btn ghost" style="padding:4px 10px;font-size:11px" @click="famResolveConflict(c.id, 'dismissed')">误报驳回</button>
+                </div>
+              </div>
+              <div v-if="!famConflicts.recent || !famConflicts.recent.length" class="empty-state" style="padding:20px;text-align:center">
+                <div style="font-size:13px;color:#5c6080">暂无待处理冲突～</div>
+                <div style="font-size:11px;color:#4a4e68;margin-top:4px">新记忆写入时会自动检测</div>
               </div>
             </div>
-            <div v-else-if="famDetailView==='archive'" class="fam-detail-body">
-              <div v-for="(c,s) in famArchive.breakdown" :key="s" class="fam-kv-item"><span class="k">{{s}}</span><span class="v">{{c}}</span></div>
-              <div class="fam-kv-item"><span class="k">待处理</span><span class="v">{{famArchive.pending||0}}</span></div>
-            </div>
+
+            <!-- 例会日报详情 -->
             <div v-else-if="famDetailView==='meetings'" class="fam-detail-body">
-              <div v-for="m in famMeetings" :key="m.report_date" class="fam-meeting-row">
-                <span class="fam-meeting-date">{{m.report_date}}</span>
-                <span class="fam-meeting-sum">{{(m.summary||'').slice(0,80)}}</span>
+              <div v-for="m in famMeetings" :key="m.report_date" class="fam-meeting-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <span class="fam-meeting-date">{{m.report_date}}</span>
+                  <span style="font-size:11px;padding:1px 7px;border-radius:20px" :style="{background: m.status==='generated'?'rgba(138,124,255,.12)':'rgba(92,96,128,.12)',color:m.status==='generated'?'#8a7cff':'#5c6080'}">{{m.status}}</span>
+                </div>
+                <span class="fam-meeting-sum" style="white-space:pre-wrap">{{(m.summary||'').slice(0,200)}}</span>
               </div>
               <div v-if="!famMeetings.length" class="empty-state">暂无例会记录</div>
             </div>
@@ -2309,6 +2431,11 @@ createApp({
       famFeedbackRows: [],
       famArchive: { total: 0, breakdown: {}, pending: 0 },
       famDetailView: null,
+      famLastRefresh: '',
+      famScanning: false,
+      famScanResult: null,
+      famConflicts: { total: 0, pending: 0, confirmed: 0, resolved: 0, recent: [] },
+      famMeetingLoading: false,
       stats: { total: 0, today: 0, lessons: 0 },
       sysInfo: { total_memories: 0, db_size_mb: 0, dream_stage: "idle" },
       tags: [], recentMems: [],
@@ -2789,7 +2916,7 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
     async generateSummary() {
       this.summaryGenerating = true;
       try {
-        const r = await this.postApi("summary/generate", {});
+        const r = await this.postApi("family/meeting-generate", {});
         if (r.status === "ok") {
           this.toast("✅ 摘要已生成！", "success");
           await this.loadSummaryData();
@@ -3837,10 +3964,70 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
         this.famFeedback = d.feedback || { total: 0, by_type: {}, by_pair: {} };
         this.famFeedbackRows = d.feedback_rows || [];
         this.famArchive = d.archive || { total: 0, breakdown: {}, pending: 0 };
+        this.famConflicts = d.conflicts || { total: 0, pending: 0, confirmed: 0, resolved: 0, recent: [] };
+        // 记录刷新时间
+        const now = new Date();
+        this.famLastRefresh = String(now.getHours()).padStart(2,'0') + ':' +
+          String(now.getMinutes()).padStart(2,'0') + ':' +
+          String(now.getSeconds()).padStart(2,'0');
       } catch (e) {
         console.error("[Family] load failed:", e);
       } finally {
         this.famLoading = false;
+      }
+    },
+    async famArchiveScan() {
+      this.famScanning = true;
+      this.famScanResult = null;
+      try {
+        const r = await this.postApi("archive/scan", {
+          days: 30, min_importance: 0.6, max_candidates: 20, dry_run: true
+        });
+        this.famScanResult = r;
+        // 刷新归档数据
+        await this.loadFamilyData();
+        const nc = r.new_candidates || (r.candidates ? r.candidates.length : 0);
+        this.toast("扫描完成，新增 " + nc + " 个候选", "ok");
+      } catch (e) {
+        console.error("[Family] archive scan failed:", e);
+        this.toast("归档扫描失败: " + (e.message||e), "error");
+      } finally {
+        this.famScanning = false;
+      }
+    },
+    async famResolveConflict(conflictId, newStatus) {
+      try {
+        const r = await this.postApi("conflict/resolve", {
+          conflict_id: conflictId, new_status: newStatus
+        });
+        if (r.success) {
+          const labels = {confirmed:'已确认', resolved:'已解决', dismissed:'已驳回'};
+          this.toast("冲突 #" + conflictId + " " + (labels[newStatus]||newStatus), "ok");
+          // 刷新数据
+          await this.loadFamilyData();
+        } else {
+          this.toast(r.msg || "操作失败", "error");
+        }
+      } catch (e) {
+        console.error("[Family] resolve conflict failed:", e);
+        this.toast("操作失败: " + (e.message||e), "error");
+      }
+    },
+    async famGenerateMeeting() {
+      this.famMeetingLoading = true;
+      try {
+        const r = await this.postApi("family/meeting-generate", {});
+        if (r.success || r.status === "ok") {
+          this.toast("例会日报已生成", "ok");
+          await this.loadFamilyData();
+        } else {
+          this.toast(r.msg || r.message || "生成失败", "error");
+        }
+      } catch (e) {
+        console.error("[Family] generate meeting failed:", e);
+        this.toast("生成失败: " + (e.message||e), "error");
+      } finally {
+        this.famMeetingLoading = false;
       }
     },
     async loadKnowledgeAll() {

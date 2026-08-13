@@ -121,7 +121,7 @@ class EmotionEngine:
         self._negation_pattern = re.compile(
             r"(?:" + "|".join(re.escape(w) for w in NEGATION_WORDS) + r")\s{0,2}(\S{0,3})$"
         )
-        logger.info(f"[EmotionEngine] v5.7 上下文感知情感引擎已初始化，"
+        logger.info(f"[EmotionEngine] v6.0 上下文感知情感引擎已初始化，"
                      f"{len(EMOTION_LEXICON)}类情绪，{sum(len(v) for v in EMOTION_LEXICON.values())}情感词")
 
     def analyze(self, text: str, speaker: str = "user") -> dict:

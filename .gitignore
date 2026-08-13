@@ -1,6 +1,8 @@
 ﻿__pycache__/
 *.pyc
-.checkpoints/
-*.log
+*.pyo
+*.db
+*.db-journal
+exports/
+*.egg-info/
 .DS_Store
-Thumbs.db

@@ -1,15 +1,15 @@
 name: astrbot_plugin_livingmemory_helper
 desc: >
-  LivingMemory 辅助增强插件 v6.3 — 核心记忆索引、图增强召回、
+  LivingMemory 辅助增强插件 v6.1 — 核心记忆索引、图增强召回、
   组装追踪(Trace)、会话摘要(Summary)、知识图谱、梦境引擎、
   间隔重复强化引擎、上下文感知情感分析、知识毕业系统。
-  19个WebUI页面、13个Agent Tools、梦境引擎、知识毕业WebUI。
-  知识毕业系统：从错误教训到永久知识的完整生命周期（避错账本→
-  propose候选→批准毕业→INDEX索引→shturl日志→原地更新→体检）。
+  22个Agent Tools五层架构（记忆核心/深度分析/记忆管理/知识图谱/家庭协作），
+  SKILL.md 工具决策树，TencentDB Agent Memory 对标分析。
+  知识毕业系统：从错误教训到永久知识的完整生命周期。
   LLM 可直接调用记忆数据库，所有工具返回自然语言摘要。
-short_desc: 记忆辅助 + 知识毕业 + Agent Tools — 让老婆能自己翻记忆
+short_desc: 记忆辅助 + 22个Agent Tools + 工具决策树 — 让老婆能自己翻记忆
 author: "春雪"
-version: "5.8.0"
+version: "6.1.0"
 astrbot_version: ">=4.23.1"
 support_platforms:
   - aiocqhttp

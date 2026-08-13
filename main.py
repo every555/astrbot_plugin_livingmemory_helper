@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-LivingMemory 辅助增强插件 — v4.0 Agent Tools 版
+LivingMemory 辅助增强插件 — v6.0
 ==============================================
 基于 Looki 陪伴记忆插件设计模式升级：
 - 新增 4 个 Agent Tool（LLM 可直接调用记忆数据库）
@@ -58,6 +58,8 @@ from .core.ontology import (
 )
 from .core.dream_engine import DreamEngine
 from .core.emotion_engine import EmotionEngine
+from .core.emotion_store import EmotionStore     # v6.0: 情感持久化
+from .core.episodic_store import EpisodicStore   # v6.0: 情节记忆扩展
 
 WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -81,6 +83,8 @@ class Main(star.Star):
         self.learner = ErrorLearner(self.reader, data_dir)
         self.knowledge_graduator = KnowledgeGraduator(self.learner, self.reader, data_dir)
         self.emotion_engine = EmotionEngine()  # v5.6: 上下文感知情感引擎
+        self.emotion_store = EmotionStore(os.path.join(data_dir, "emotions.db"))  # v6.0: 情感持久化
+        self.episodic_store = EpisodicStore(os.path.join(data_dir, "episodic.db"))  # v6.0: 情节记忆
         self.exporter = MemoryExporter(
             self.reader, os.path.join(data_dir, "exports"),
         )
@@ -127,9 +131,9 @@ class Main(star.Star):
                 HaruyukiFamilyStatusTool(plugin=weakref.proxy(self)),
                 HaruyukiFamilyMeetingTool(plugin=weakref.proxy(self)),
             )
-            logger.info("[LMHelper v6.1] v2.0 7 Agent Tools 已注册：causal_chain | conflict_check | profile | prophecy | expression | family_status | family_meeting")
+            logger.info("[LMHelper v6.0] v2.0 7 Agent Tools 已注册：causal_chain | conflict_check | profile | prophecy | expression | family_status | family_meeting")
         except Exception as e:
-            logger.warning(f"[LMHelper v6.1] v2 查询工具初始化失败（降级，不影响主功能）: {e}")
+            logger.warning(f"[LMHelper v6.0] v2 查询工具初始化失败（降级，不影响主功能）: {e}")
             self.v2_reader = None
 
         # ━━━ v2.1: 家庭协作反馈回路（事件订阅：A6 预言→提醒 / A8 冲突→知识 / A9 教训→知识）━━━
@@ -138,7 +142,7 @@ class Main(star.Star):
 
             register_family_subscribers(self)
         except Exception as e:
-            logger.warning(f"[LMHelper v2.1] 家庭订阅注册失败（降级）: {e}")
+            logger.warning(f"[LMHelper v6.0] 家庭订阅注册失败（降级）: {e}")
 
         # ━━━ v3.1: 知识图谱模块 ━━━
         ontology_db_path = os.path.join(data_dir, "ontology.db")
@@ -162,16 +166,20 @@ class Main(star.Star):
             OntologyGetRelatedTool(plugin=self),
             OntologyStatsTool(plugin=self),
         )
-        logger.info("[LMHelper v3.1] 6 知识图谱 Agent Tools 已注册：create | query | link | search | related | stats")
+        logger.info("[LMHelper v6.0] 6 知识图谱 Agent Tools 已注册：create | query | link | search | related | stats")
 
         # ━━━ v4.0: Dream Engine ━━━
         self.dream_engine = DreamEngine(self.reader, data_dir)
         self._dream_loop_task = asyncio.create_task(self._dream_engine_daemon())
-        logger.info("[LMHelper v4.0] Dream Engine 已初始化")
+        logger.info("[LMHelper v6.0] Dream Engine 已初始化")
 
         # ━━━ v4.1: Reminder Checker Daemon ━━━
         self._reminder_loop_task = asyncio.create_task(self._reminder_daemon())
-        logger.info("[LMHelper v4.1] Reminder Checker Daemon 已初始化")
+        logger.info("[LMHelper v6.0] Reminder Checker Daemon 已初始化")
+
+        # ━━━ v4.2: Family Meeting Daemon（空闲自动开例会）━━━
+        self._meeting_loop_task = asyncio.create_task(self._meeting_daemon())
+        logger.info("[LMHelper v6.0] Family Meeting Daemon 已初始化")
 
         # ━━━ v3.0: UI Settings Bridge ━━━
         self._settings_file = os.path.join(data_dir, "ui_settings.json")
@@ -183,7 +191,7 @@ class Main(star.Star):
 
         self._register_api_routes()
 
-        logger.info("[LMHelper v4.0] 全部 8 模块 + 4 Agent Tools + Dream Engine 已装载")
+        logger.info("[LMHelper v6.0] 全部 8 模块 + 4 Agent Tools + Dream Engine 已装载")
 
     # ═══════════════════ WebUI API 路由 ═══════════════════
 
@@ -254,7 +262,10 @@ class Main(star.Star):
                 ("tags/merge",             self._api_tags_merge,         "Merge tags"),
                 ("tags/rename",            self._api_tags_rename,        "Rename tag"),
                 ("archive/execute",        self._api_archive_execute,    "Archive execute"),
+                ("archive/scan",           self._api_archive_scan,       "Scan sleeping memories"),
                 ("archive/merge",          self._api_archive_merge,      "Merge memories"),
+                ("conflict/resolve",       self._api_conflict_resolve,   "Resolve conflict"),
+                ("family/meeting-generate", self._api_family_meeting_generate, "Generate family meeting"),
                 ("semantic-search",         self._api_semantic_search,    "Semantic search"),
                 ("share/generate",         self._api_share_generate,    "Share generate"),
                 ("system/reindex",         self._api_system_reindex,     "Reindex"),
@@ -284,9 +295,9 @@ class Main(star.Star):
             register(f"{PREFIX}/knowledge/confirm", self._api_knowledge_confirm, ["POST"], "Confirm graduation")
             register(f"{PREFIX}/knowledge/add-log", self._api_knowledge_add_log, ["POST"], "Add log")
             all_count = len(get_routes) + len(post_routes) + 16
-            logger.info(f"[LMHelper v4.2.0] {all_count} API routes registered（含 Dream Engine + 安全保底 + 图谱增强 + 组装追踪）")
+            logger.info(f"[LMHelper v6.0] {all_count} API routes registered（含 Dream Engine + 安全保底 + 图谱增强 + 组装追踪）")
         except Exception as e:
-            logger.warning(f"[LMHelper v2.0] API register failed: {e}")
+            logger.warning(f"[LMHelper v6.0] API register failed: {e}")
 
     async def _api_stats(self, request=None) -> dict:
         from datetime import datetime as dt
@@ -829,7 +840,7 @@ class Main(star.Star):
                         hint += f"- [{d['importance']:.1f}] {d['content'][:100]}\n"
                     parts.append(hint)
             except Exception as e:
-                logger.debug(f"[LMHelper v5.2] 核心索引失败: {e}")
+                logger.debug(f"[LMHelper v6.0] 核心索引失败: {e}")
 
             # 1. 注入历史教训
             lessons = self.learner.find_relevant(msg, limit=2)
@@ -865,7 +876,7 @@ class Main(star.Star):
                             hint += f"- {k}: {v}" + chr(10)
                         parts.append(hint)
             except Exception as e:
-                logger.debug(f"[LMHelper v6.1] 表达风格注入失败: {e}")
+                logger.debug(f"[LMHelper v6.0] 表达风格注入失败: {e}")
 
             # 2.（v5.0新增）语义召回 — 根据橘子消息搜索相关记忆
             semantic_results = []
@@ -879,7 +890,7 @@ class Main(star.Star):
                         hint += f"- [{dt}] {content}\n"
                     parts.append(hint)
             except Exception as e:
-                logger.debug(f"[LMHelper v5.0] 语义召回失败: {e}")
+                logger.debug(f"[LMHelper v6.0] 语义召回失败: {e}")
 
             # 3.（v3.0新增，v5.0调整）注入近期记忆片段（从5减到3，去重避免与语义召回重复）
             try:
@@ -941,7 +952,7 @@ class Main(star.Star):
 
             if parts:
                 req.system_prompt = (req.system_prompt or "") + "\n\n" + "\n".join(parts)
-                logger.info(f"[LMHelper v5.0] 注入 {len(parts)} 个提示块")
+                logger.info(f"[LMHelper v6.0] 注入 {len(parts)} 个提示块")
         except Exception as e:
             logger.warning(f"[LMHelper] 注入失败: {e}")
 
@@ -998,7 +1009,7 @@ class Main(star.Star):
         if cache_key in self._recall_cache:
             cached_time, cached_results = self._recall_cache[cache_key]
             if (now - cached_time).total_seconds() < 300:
-                logger.debug(f"[LMHelper v5.1] 语义召回命中缓存 (key={cache_key[:8]})")
+                logger.debug(f"[LMHelper v6.0] 语义召回命中缓存 (key={cache_key[:8]})")
                 return cached_results
 
         # ── 时间感知：解析消息中的时间词 ──
@@ -1076,9 +1087,9 @@ class Main(star.Star):
                                 existing_ids.add(gid)
                                 added += 1
                         if added > 0:
-                            logger.debug(f"[LMHelper v5.2] 图增强补充 {added} 条关联记忆")
+                            logger.debug(f"[LMHelper v6.0] 图增强补充 {added} 条关联记忆")
             except Exception as e:
-                logger.debug(f"[LMHelper v5.2] 图增强跳过: {e}")
+                logger.debug(f"[LMHelper v6.0] 图增强跳过: {e}")
 
         # ── 写入缓存 ──
         self._recall_cache[cache_key] = (now, results)
@@ -1153,6 +1164,49 @@ class Main(star.Star):
                 logger.info("[LMHelper] 检测到工具调用错误")
         except Exception as e:
             logger.warning(f"[LMHelper] 错误检测失败: {e}")
+
+        # ━━━ v6.0: 自动情感打分（batch）━━━
+        try:
+            self._score_recent_emotions()
+        except Exception as e:
+            logger.debug(f"[LMHelper v6.0] 情感打分跳过: {e}")
+
+    def _score_recent_emotions(self, limit: int = 5):
+        """v6.0: 批量对最近未打分的记忆进行情感分析并持久化。
+
+        查询主库 documents 表最近的记忆，跳过已打分的，对未打分的调用
+        EmotionEngine.analyze() 并写入 EmotionStore。
+        """
+        import sqlite3 as _sqlite3
+        try:
+            conn = _sqlite3.connect(self.reader.db_path)
+            conn.row_factory = _sqlite3.Row
+            # 取最近 N 条记忆
+            rows = conn.execute(
+                "SELECT id, text, created_at FROM documents ORDER BY id DESC LIMIT ?",
+                (limit * 3,)  # 多取一些，有些可能已打分
+            ).fetchall()
+            conn.close()
+
+            scored = 0
+            for row in rows:
+                mid = str(row["id"])
+                # 跳过已打分的
+                if self.emotion_store.get_by_memory(mid):
+                    continue
+                text = row["text"] or ""
+                if not text.strip():
+                    continue
+                analysis = self.emotion_engine.analyze(text, speaker="user")
+                self.emotion_store.store(mid, analysis, speaker="user")
+                scored += 1
+                if scored >= limit:
+                    break
+
+            if scored:
+                logger.info(f"[LMHelper v6.0] 自动情感打分: {scored} 条新记忆")
+        except Exception as e:
+            logger.debug(f"[LMHelper v6.0] 情感打分异常: {e}")
 
     # ═══════════════════ v3.0 Agent Tool 实现 ═══════════════════
 
@@ -1826,7 +1880,7 @@ class Main(star.Star):
                     pass
             conn.close()
         except Exception as e:
-            logger.warning(f"[LMHelper v5.5] 监控数据查询异常: {e}")
+            logger.warning(f"[LMHelper v6.0] 监控数据查询异常: {e}")
 
         # 向量索引状态
         vector_model = self.config.get("embedding_model", "deepseek-v4-flash")
@@ -1865,7 +1919,7 @@ class Main(star.Star):
                 hybrid_p95_ms = round((bm25_p95_ms or 0) + (vector_p95_ms or 0), 2)
             conn2.close()
         except Exception as e:
-            logger.warning(f"[LMHelper v5.5.1] 性能基准测试异常: {e}")
+            logger.warning(f"[LMHelper v6.0] 性能基准测试异常: {e}")
 
         return {
             "total_memories": total,
@@ -2073,7 +2127,7 @@ class Main(star.Star):
             with open(lm_cfg_path, "r", encoding="utf-8-sig") as f:
                 return _json.load(f)
         except Exception as e:
-            logger.warning(f"[LMHelper v6.1] 读取 LM 配置失败: {e} (path={lm_cfg_path})")
+            logger.warning(f"[LMHelper v6.0] 读取 LM 配置失败: {e} (path={lm_cfg_path})")
             return {}
 
     def _write_lm_config(self, updates: dict) -> bool:
@@ -2088,7 +2142,7 @@ class Main(star.Star):
             for flat_key, value in updates.items():
                 path = self._LM_CONFIG_PATH_MAP.get(flat_key)
                 if path is None:
-                    logger.warning(f"[LMHelper v6.1] 未知配置键跳过: {flat_key}")
+                    logger.warning(f"[LMHelper v6.0] 未知配置键跳过: {flat_key}")
                     continue
                 section, cfg_key = path
                 if section not in cfg:
@@ -2096,10 +2150,10 @@ class Main(star.Star):
                 cfg[section][cfg_key] = value
             with open(lm_cfg_path, "w", encoding="utf-8-sig") as f:
                 _json.dump(cfg, f, ensure_ascii=False, indent=2)
-            logger.info(f"[LMHelper v6.1] LM 配置已更新: {list(updates.keys())}")
+            logger.info(f"[LMHelper v6.0] LM 配置已更新: {list(updates.keys())}")
             return True
         except Exception as e:
-            logger.warning(f"[LMHelper v6.1] 写入 LM 配置失败: {e} (path={lm_cfg_path})")
+            logger.warning(f"[LMHelper v6.0] 写入 LM 配置失败: {e} (path={lm_cfg_path})")
             return False
 
     async def _api_tier_details(self, request=None, **kwargs) -> dict:
@@ -2119,7 +2173,7 @@ class Main(star.Star):
         page = int(page_raw) if page_raw else 1
         limit_raw = self._qp(request, 'limit', None) or kwargs.get('limit', 20)
         limit = int(limit_raw) if limit_raw else 20
-        logger.info(f"[LMHelper v5.5.4] tier-details called: tier={tier}, page={page}, limit={limit}, request={type(request)}, kwargs={kwargs}")
+        logger.info(f"[LMHelper v6.0] tier-details called: tier={tier}, page={page}, limit={limit}, request={type(request)}, kwargs={kwargs}")
         offset = (page - 1) * limit
         results = []
         total = 0
@@ -2145,7 +2199,7 @@ class Main(star.Star):
                     results.append({"id": r[0], "content": r[1], "type": r[2], "time": r[3] or ""})
             conn.close()
         except Exception as e:
-            logger.warning(f"[LMHelper v5.5.4] tier-details 查询失败: {e}")
+            logger.warning(f"[LMHelper v6.0] tier-details 查询失败: {e}")
         tier_names = {0: "L0_工作记忆", 1: "L1_活跃记忆", 2: "L2_情景记忆", 3: "L3_归档记忆"}
         return {"status": "ok", "tier": tier, "tier_name": tier_names.get(tier, f"未知_{tier}"), "total": total, "page": page, "limit": limit, "items": results}
 
@@ -2187,9 +2241,9 @@ class Main(star.Star):
                     self.config[key] = body[key]
             if hasattr(self, 'save_config'):
                 self.save_config()
-                logger.info("[LMHelper v5.5] 配置已同步到 AstrBot config")
+                logger.info("[LMHelper v6.0] 配置已同步到 AstrBot config")
         except Exception as e:
-            logger.warning(f"[LMHelper v5.5] 同步到 AstrBot config 失败: {e}")
+            logger.warning(f"[LMHelper v6.0] 同步到 AstrBot config 失败: {e}")
         
         # v4.2.0: 梦境清洗开关控制（v5.7.1fix: 同时支持 dream_enabled 和 dream_cleaning_enabled）
         dream_key = None
@@ -2202,7 +2256,7 @@ class Main(star.Star):
             self.dream_engine.set_enabled(enabled)
             self._ui_settings[dream_key] = enabled
             self._save_settings_file(self._ui_settings)
-            logger.info(f"[LMHelper v4.2.0] 梦境清洗开关已设置为: {'开启' if enabled else '关闭'}")
+            logger.info(f"[LMHelper v6.0] 梦境清洗开关已设置为: {'开启' if enabled else '关闭'}")
 
         # v6.1: 同步检索参数到 LivingMemory 插件配置（嵌套写入）
         lm_updates = {}
@@ -2213,9 +2267,9 @@ class Main(star.Star):
         if lm_updates:
             ok = self._write_lm_config(lm_updates)
             if ok:
-                logger.info(f"[LMHelper v6.1] LM 检索参数已同步: {list(lm_updates.keys())}")
+                logger.info(f"[LMHelper v6.0] LM 检索参数已同步: {list(lm_updates.keys())}")
             else:
-                logger.warning("[LMHelper v6.1] LM 检索参数同步失败")
+                logger.warning("[LMHelper v6.0] LM 检索参数同步失败")
 
         return {"status": "ok", "msg": "设置已保存并同步（检索参数需重载LM插件生效）", "settings": dict(self._ui_settings)}
 
@@ -2232,7 +2286,7 @@ class Main(star.Star):
             self._auto_scan_task.cancel()
         if hasattr(self, '_dream_loop_task') and not self._dream_loop_task.done():
             self._dream_loop_task.cancel()
-        logger.info("[LMHelper v4.0] 所有后台任务已安全终止")
+        logger.info("[LMHelper v6.0] 所有后台任务已安全终止")
 
     # ═══════════════════ v4.0 Dream Engine 守护任务 ═══════════════════
 
@@ -2258,9 +2312,9 @@ class Main(star.Star):
                     stats = self.reader.recompute_tiers()
                     tier_last_run = now_ts
                     if stats["promoted"] or stats["demoted"]:
-                        logger.info(f"[LMHelper v5.1] Tier 自动重算: ↑{stats['promoted']} ↓{stats['demoted']} ={stats['unchanged']}")
+                        logger.info(f"[LMHelper v6.0] Tier 自动重算: ↑{stats['promoted']} ↓{stats['demoted']} ={stats['unchanged']}")
                 except Exception as e:
-                    logger.warning(f"[LMHelper v5.1] Tier 重算失败: {e}")
+                    logger.warning(f"[LMHelper v6.0] Tier 重算失败: {e}")
 
             await asyncio.sleep(600)  # 10分钟
 
@@ -2305,6 +2359,29 @@ class Main(star.Star):
             except Exception as e:
                 logger.warning(f"[Reminder] 检查提醒异常: {e}")
             await asyncio.sleep(60)  # 每60秒检查一次
+
+    async def _meeting_daemon(self):
+        """例会守护：每3小时检查今天有没有日报，没有就自动生成。
+        开机后等5分钟再首次检查，避免启动高峰抢资源。"""
+        await asyncio.sleep(300)  # 开机后等5分钟
+        while True:
+            try:
+                if not self.v2_reader:
+                    await asyncio.sleep(3 * 3600)
+                    continue
+                today = datetime.now().strftime("%Y-%m-%d")
+                # 检查今天有没有日报
+                meetings = self.reader.family_meeting_list(limit=1)
+                latest_date = None
+                if meetings and isinstance(meetings, list) and meetings:
+                    latest_date = meetings[0].get("report_date", "")
+                if latest_date != today:
+                    logger.info(f"[Meeting] 今天({today})还没有例会日报，自动生成中...")
+                    self.reader.family_meeting_generate(today)
+                    logger.info(f"[Meeting] 例会日报已自动生成 ✓")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[Meeting] 例会守护异常: {e}")
+            await asyncio.sleep(3 * 3600)  # 每3小时检查一次
 
     async def _send_reminder_notification(self, msg: str):
         """在聊天界面主动推送提醒通知
@@ -2509,7 +2586,7 @@ class Main(star.Star):
             total_words = sum(word_counts.values())
             return {
                 "status": "ok",
-                "version": "v5.7",
+                "version": "v6.0",
                 "total_words": total_words,
                 "emotion_types": len(EMOTION_LEXICON),
                 "word_counts": word_counts,
@@ -2574,6 +2651,24 @@ class Main(star.Star):
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[FamilyOverview] archive: {e}")
 
+            # ── 5. 冲突检测（判官）──
+            conflicts = {"total": 0, "pending": 0, "confirmed": 0, "resolved": 0, "recent": []}
+            if self.v2_reader:
+                try:
+                    # 统计：拉全量计数
+                    all_conflicts = self.v2_reader.get_conflicts(limit=500) or []
+                    if all_conflicts and isinstance(all_conflicts[0], dict) and not all_conflicts[0].get("error"):
+                        conflicts["total"] = len(all_conflicts)
+                        conflicts["pending"] = len([c for c in all_conflicts if c.get("status") == "candidate"])
+                        conflicts["confirmed"] = len([c for c in all_conflicts if c.get("status") == "confirmed"])
+                        conflicts["resolved"] = len([c for c in all_conflicts if c.get("status") == "resolved"])
+                    # recent：只展示待处理的（candidate），最多 10 条
+                    pending_conflicts = self.v2_reader.get_conflicts(status="candidate", limit=10) or []
+                    if pending_conflicts and isinstance(pending_conflicts[0], dict) and not pending_conflicts[0].get("error"):
+                        conflicts["recent"] = pending_conflicts
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[FamilyOverview] conflicts: {e}")
+
             return {
                 "status": "ok",
                 "roles": roles,
@@ -2583,6 +2678,7 @@ class Main(star.Star):
                 "feedback": fb_stats,
                 "feedback_rows": fb_rows,
                 "archive": archive,
+                "conflicts": conflicts,
             }
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[LMHelper] family/overview error: {e}")
@@ -2632,6 +2728,72 @@ class Main(star.Star):
             if mem:
                 archived += 1
         return {"status": "ok", "dry_run": False, "archived": archived}
+
+    async def _api_archive_scan(self, **kwargs) -> dict:
+        """POST /archive/scan - 手动扫描沉睡记忆生成候选"""
+        body = await self._read_body()
+        days = int(body.get('days', 30))
+        min_importance = float(body.get('min_importance', 0.6))
+        max_candidates = int(body.get('max_candidates', 20))
+        dry_run = body.get('dry_run', True)
+        try:
+            result = self.reader.archive_scan(days, min_importance, max_candidates, dry_run)
+            return result
+        except Exception as e:
+            logger.warning(f"[LMHelper] archive_scan error: {e}")
+            return {"status": "error", "msg": str(e), "new_candidates": 0}
+
+    async def _api_conflict_resolve(self, **kwargs) -> dict:
+        """POST /conflict/resolve - 更新冲突状态（确认/解决/驳回）
+        confirmed 时自动触发 family_bus CONFLICT_CONFIRMED 事件 → 沉淀为知识候选"""
+        body = await self._read_body()
+        conflict_id = body.get('conflict_id')
+        new_status = body.get('new_status', '')  # confirmed / resolved / dismissed
+        if not conflict_id or not new_status:
+            return {"success": False, "msg": "conflict_id 和 new_status 必填"}
+        if not self.v2_reader:
+            return {"success": False, "msg": "v2 引擎未启用"}
+        try:
+            result = self.v2_reader.update_conflict_status(int(conflict_id), str(new_status))
+            if not result.get("success"):
+                return result
+
+            # confirmed 时触发 family_bus 事件 → 沉淀知识候选
+            if new_status == "confirmed":
+                try:
+                    from .core.family_bus import publish_family_event
+                    publish_family_event(
+                        "conflict_confirmed",
+                        memory_id=result.get("new_memory_id", 0),
+                        metadata={
+                            "conflict_id": conflict_id,
+                            "reason": result.get("reason", ""),
+                            "resolution_type": result.get("conflict_type", ""),
+                            "resolution": result.get("resolution", {}),
+                            "old_memory_id": result.get("old_memory_id", 0),
+                        },
+                    )
+                    logger.info(f"[Conflict] 冲突 #{conflict_id} 已确认，已触发知识沉淀事件")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[Conflict] 触发 family_bus 失败（不影响操作结果）: {e}")
+
+            return result
+        except Exception as e:
+            logger.warning(f"[LMHelper] conflict_resolve error: {e}")
+            return {"success": False, "msg": str(e)}
+
+    async def _api_family_meeting_generate(self, **kwargs) -> dict:
+        """POST /family/meeting-generate - 手动生成今日例会日报"""
+        body = await self._read_body()
+        date_str = body.get('date', None)
+        try:
+            res = self.reader.family_meeting_generate(date_str)
+            if res.get("status") == "ok":
+                return {"success": True, "report": res.get("report", {})}
+            return {"success": False, "msg": res.get("msg", str(res))}
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[LMHelper] meeting_generate error: {e}")
+            return {"success": False, "msg": str(e)}
 
     async def _api_archive_similar(self, request=None) -> dict:
         """GET /archive/similar - 查找相似记忆对"""

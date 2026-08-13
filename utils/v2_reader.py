@@ -99,7 +99,8 @@ class V2Reader:
     def get_conflicts(self, status: str | None = None, limit: int = 20) -> list[dict]:
         sql = (
             "SELECT id, new_memory_id, old_memory_id, level, conflict_type, reason, "
-            "confidence, status, created_at FROM memory_conflicts"
+            "confidence, status, resolution, created_at, resolved_at "
+            "FROM memory_conflicts"
         )
         args: list[Any] = []
         if status:
@@ -115,6 +116,78 @@ class V2Reader:
             return rows
         except Exception as e:  # noqa: BLE001
             return [{"error": str(e)}]
+
+    def update_conflict_status(self, conflict_id: int, new_status: str) -> dict:
+        """更新冲突记录状态: candidate -> confirmed/resolved/dismissed
+        confirmed 时记录 resolved_at 时间戳和 resolution 变化说明"""
+        import sqlite3, time, json as _json
+        valid = {"candidate", "confirmed", "resolved", "dismissed"}
+        if new_status not in valid:
+            return {"success": False, "msg": f"无效状态: {new_status}"}
+        try:
+            conn = sqlite3.connect(self.v2_db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                # 先读出冲突详情，用于生成变化说明
+                row = conn.execute(
+                    "SELECT * FROM memory_conflicts WHERE id=?", (conflict_id,)
+                ).fetchone()
+                if not row:
+                    return {"success": False, "msg": f"冲突 #{conflict_id} 不存在"}
+
+                now_ts = time.time()
+                resolution_data = {}
+
+                if new_status == "confirmed":
+                    # 生成变化说明，标注时间
+                    from datetime import datetime as _dt
+                    time_str = _dt.fromtimestamp(now_ts).strftime("%Y-%m-%d %H:%M")
+                    resolution_data = {
+                        "resolved_by": "橘子",
+                        "resolved_at_str": time_str,
+                        "action": "confirmed",
+                        "note": f"橘子于 {time_str} 确认此冲突成立，新旧记忆存在矛盾",
+                    }
+                elif new_status == "resolved":
+                    from datetime import datetime as _dt
+                    time_str = _dt.fromtimestamp(now_ts).strftime("%Y-%m-%d %H:%M")
+                    resolution_data = {
+                        "resolved_by": "橘子",
+                        "resolved_at_str": time_str,
+                        "action": "resolved",
+                        "note": f"橘子于 {time_str} 标记冲突已解决",
+                    }
+                elif new_status == "dismissed":
+                    from datetime import datetime as _dt
+                    time_str = _dt.fromtimestamp(now_ts).strftime("%Y-%m-%d %H:%M")
+                    resolution_data = {
+                        "resolved_by": "橘子",
+                        "resolved_at_str": time_str,
+                        "action": "dismissed",
+                        "note": f"橘子于 {time_str} 判定为误报",
+                    }
+
+                conn.execute(
+                    "UPDATE memory_conflicts SET status=?, resolved_at=?, resolution=? WHERE id=?",
+                    (new_status, now_ts, _json.dumps(resolution_data, ensure_ascii=False), conflict_id),
+                )
+                conn.commit()
+
+                # 返回冲突详情，供调用方触发事件链
+                return {
+                    "success": True,
+                    "conflict_id": conflict_id,
+                    "new_status": new_status,
+                    "new_memory_id": row["new_memory_id"],
+                    "old_memory_id": row["old_memory_id"],
+                    "conflict_type": row["conflict_type"],
+                    "reason": row["reason"],
+                    "resolution": resolution_data,
+                }
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "msg": str(e)}
 
     # ─────────── 预言 ───────────
 

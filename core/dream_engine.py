@@ -121,6 +121,97 @@ class DreamEngine:
             self._log_history("rollback_failed", str(e))
             return {"success": False, "message": f"回滚失败: {e}"}
 
+    # ━━━ v6.0: 真实记忆归并（consolidate）━━━
+
+    def _consolidate_similar(self) -> int:
+        """v6.0: 归并高度相似的记忆。
+
+        算法：
+        1. 取最近 200 条记忆
+        2. 用简单的文本相似度（Jaccard / 共同关键词比例）找相似对
+        3. 对每对相似记忆，保留 importance 更高的，将低的标记为 "merged_into: <id>"
+        4. 不删除任何记忆（安全），只在 metadata 中标记
+
+        Returns:
+            归并的记忆对数
+        """
+        merged_count = 0
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+
+            rows = conn.execute(
+                "SELECT id, text, metadata FROM documents "
+                "WHERE json_extract(metadata, '$.importance') < ? "
+                "ORDER BY id DESC LIMIT 200",
+                (self.importance_whitelist,)
+            ).fetchall()
+
+            # 预处理：提取每条记忆的关键词集合
+            memories = []
+            for row in rows:
+                text = (row["text"] or "").lower()
+                # 简单分词：按空格和标点切分，取长度 >= 2 的词
+                import re
+                words = set(re.findall(r'[\w\u4e00-\u9fff]{2,}', text))
+                memories.append({
+                    "id": row["id"],
+                    "text": text,
+                    "words": words,
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                })
+
+            # 两两比较（O(n²) 但 n<=200 可接受）
+            merged_ids = set()
+            for i in range(len(memories)):
+                if memories[i]["id"] in merged_ids:
+                    continue
+                for j in range(i + 1, len(memories)):
+                    if memories[j]["id"] in merged_ids:
+                        continue
+
+                    # Jaccard 相似度
+                    intersection = memories[i]["words"] & memories[j]["words"]
+                    union = memories[i]["words"] | memories[j]["words"]
+                    if not union:
+                        continue
+                    similarity = len(intersection) / len(union)
+
+                    if similarity >= 0.6:  # 60% 以上视为高度相似
+                        # 保留 importance 更高的
+                        imp_i = memories[i]["metadata"].get("importance", 0.5)
+                        imp_j = memories[j]["metadata"].get("importance", 0.5)
+
+                        if imp_i >= imp_j:
+                            keeper, merged = memories[i], memories[j]
+                        else:
+                            keeper, merged = memories[j], memories[i]
+
+                        # 在被归并的记忆的 metadata 中标记
+                        merged_meta = merged["metadata"]
+                        merged_meta["merged_into"] = str(keeper["id"])
+                        merged_meta["merge_similarity"] = round(similarity, 2)
+                        merged_meta["merged_at"] = datetime.now().isoformat()
+
+                        conn.execute(
+                            "UPDATE documents SET metadata = ? WHERE id = ?",
+                            (json.dumps(merged_meta, ensure_ascii=False), merged["id"])
+                        )
+                        merged_ids.add(merged["id"])
+                        merged_count += 1
+
+                        logger.debug(f"[DreamEngine] 归并: doc {merged['id']} → {keeper['id']} "
+                                    f"(similarity={similarity:.2f})")
+
+            if merged_count:
+                conn.commit()
+                logger.info(f"[DreamEngine] 🔗 归并完成: {merged_count} 条相似记忆已标记")
+            conn.close()
+        except Exception as e:
+            logger.warning(f"[DreamEngine] 记忆归并失败: {e}")
+
+        return merged_count
+
     def _get_prune_candidates(self) -> list:
         """获取 prune 候选列表，执行白名单 + 数量上限过滤。
         返回 [{"id": int, "doc_id": str, "importance": float, "reason": str}, ...]
@@ -399,11 +490,12 @@ class DreamEngine:
             self._log_history("gather")
             await asyncio.sleep(0.5)  # 模拟收集
 
-            # ── Phase 3: Consolidate（归并） ──
+            # ── Phase 3: Consolidate（归并）──
             self._update_lock_stage(self.STAGE_CONSOLIDATE)
             logger.info("[DreamEngine] 🔗 Phase 3/5: Consolidate — 归并相似记忆，减少冗余")
-            self._log_history("consolidate")
-            await asyncio.sleep(0.5)  # 模拟归并
+            consolidated = self._consolidate_similar()
+            self._log_history("consolidate", f"merged={consolidated}")
+            await asyncio.sleep(0.5)
 
             # ── Phase 4: Prune（修剪）—— 白名单 + 数量上限 + 详细日志 ──
             self._update_lock_stage(self.STAGE_PRUNE)

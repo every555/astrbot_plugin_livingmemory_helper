@@ -13,6 +13,8 @@ class EntityType(Enum):
     PLACE = "place"
     OBJECT = "object"
     CONCEPT = "concept"
+    GOAL = "goal"           # v6.0: 目标层级（AIRI goal hierarchy）
+    EMOTION = "emotion"     # v6.0: 情感实体
     CUSTOM = "custom"
 
 
@@ -25,6 +27,10 @@ class RelationType(Enum):
     LOCATED_AT = "located_at"
     HAS = "has"
     BELONGS_TO = "belongs_to"
+    SUBGOAL_OF = "subgoal_of"   # v6.0: 子目标关系（goal hierarchy）
+    ACHIEVED_BY = "achieved_by" # v6.0: 目标达成方式
+    BLOCKED_BY = "blocked_by"   # v6.0: 目标阻塞
+    EVOKED = "evoked"           # v6.0: 情感触发关系
     CUSTOM = "custom"
 
 
@@ -174,6 +180,91 @@ class OntologyManager:
                                      (item["id"], item["from_id"], item["relation_type"], item["to_id"], item["properties"], item["created_at"]))
                         ri += 1
         return {"success": True, "entities_imported": ei, "relations_imported": ri}
+
+    # ━━━ v6.0: 目标层级（AIRI goal hierarchy）━━━
+
+    def create_goal(self, title: str, parent_goal_id: str = None,
+                    properties: dict = None) -> dict:
+        """创建目标实体。如果指定 parent_goal_id，自动建立 subgoal_of 关系。
+
+        Args:
+            title: 目标名称
+            parent_goal_id: 父目标实体ID（可选）
+            properties: 额外属性（priority, deadline, status 等）
+        Returns:
+            {"success": True, "id": "xxx", "goal": {...}, "parent_relation": {...}}
+        """
+        props = properties or {}
+        props["title"] = title
+        props.setdefault("status", "active")  # active / achieved / abandoned
+        result = self.create_entity("goal", props)
+        if not result.get("success"):
+            return result
+
+        goal_id = result["id"]
+        response = {"success": True, "id": goal_id, "goal": result}
+
+        if parent_goal_id:
+            rel = self.create_relation(goal_id, "subgoal_of", parent_goal_id)
+            response["parent_relation"] = rel
+
+        return response
+
+    def get_goal_tree(self, goal_id: str = None, max_depth: int = 3) -> dict:
+        """获取目标层级树。
+
+        Args:
+            goal_id: 起始目标ID。None 则从顶层目标（无 subgoal_of 关系的）开始。
+            max_depth: 最大递归深度
+        Returns:
+            {"success": True, "tree": [{goal, subgoals: [...]}]}
+        """
+        if goal_id:
+            entity = self.get_entity(goal_id)
+            if not entity.get("success"):
+                return entity
+            roots = [entity]
+        else:
+            # 找所有 goal 类型且没有 subgoal_of 关系的实体
+            all_goals = self.list_entities("goal", limit=200)
+            roots_data = all_goals.get("entities", [])
+            # 过滤出没有 subgoal_of(outgoing) 的
+            root_ids = set()
+            for g in roots_data:
+                root_ids.add(g["id"])
+            for g in roots_data:
+                related = self.get_related_entities(g["id"], "subgoal_of")
+                for r in related.get("related", []):
+                    if r["direction"] == "outgoing":
+                        root_ids.discard(g["id"])
+                        break
+            roots = [self.get_entity(gid) for gid in root_ids]
+
+        def build_tree(entity_dict, depth):
+            if depth >= max_depth:
+                return {"goal": entity_dict, "subgoals": [], "truncated": True}
+            eid = entity_dict["id"]
+            related = self.get_related_entities(eid, "subgoal_of")
+            subgoals = []
+            for r in related.get("related", []):
+                if r["direction"] == "incoming":  # 别人指向我的 subgoal_of
+                    child = self.get_entity(r["id"])
+                    if child.get("success"):
+                        subgoals.append(build_tree(child, depth + 1))
+            return {"goal": entity_dict, "subgoals": subgoals}
+
+        tree = [build_tree(r, 0) for r in roots if r.get("success")]
+        return {"success": True, "tree": tree}
+
+    def update_goal_status(self, goal_id: str, status: str) -> dict:
+        """更新目标状态（active/achieved/abandoned）"""
+        entity = self.get_entity(goal_id)
+        if not entity.get("success"):
+            return entity
+        props = entity.get("properties", {})
+        props["status"] = status
+        props["status_updated_at"] = datetime.now().isoformat()
+        return self.update_entity(goal_id, props)
 
 
 class OntologyToolImplementations:

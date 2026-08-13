@@ -540,206 +540,6 @@ class AgentToolImplementations:
         self._cache_set(cache_key, result)
         return result
 
-    # ── v4.3 今日摘要 ──────────────────────────────
-
-    async def today_summary(self, reader, kwargs: dict) -> str:
-        """获取某天的记忆概览（Agent Tool: haruyuki_today_summary）"""
-        date_str = str(kwargs.get("date", "") or "").strip()
-        if not date_str:
-            date_str = datetime.now().strftime("%Y-%m-%d")
-        is_today = date_str == datetime.now().strftime("%Y-%m-%d")
-        try:
-            weekday = WEEKDAY_CN[datetime.strptime(date_str, "%Y-%m-%d").weekday()]
-        except ValueError:
-            return f"日期格式不太对呢，用 YYYY-MM-DD 试试？比如 2026-08-12 ～"
-
-        cache_key = f"today:{date_str}"
-        cached = self._cache_get(cache_key, ttl=30)
-        if cached:
-            return cached
-
-        memories = reader.get_memories_by_date(date_str, limit=100)
-        if not memories:
-            return f"{date_str}（{weekday}）那天，老婆的记忆里还没有记录呢～"
-
-        html_panel = render_today_panel(memories, date_str, weekday, is_today)
-
-        lines = []
-        for i, m in enumerate(memories[:10], 1):
-            content = (m.get("content", "") or "")[:80]
-            imp = m.get("importance", 0)
-            star = "⭐" if imp > 0.8 else ("✨" if imp > 0.6 else "")
-            lines.append(f"{i}. {star}{content}")
-        text_summary = f"{date_str}（{weekday}）共有 {len(memories)} 条记忆：" + chr(10) + chr(10).join(lines)
-
-        result = _wrap_genui(html_panel, text_summary)
-        self._cache_set(cache_key, result)
-        return result
-
-    # ── v4.3 跨时间搜索 ────────────────────────────
-
-    async def search_memory(self, reader, kwargs: dict) -> str:
-        """跨时间搜索记忆，按日期分组（Agent Tool: haruyuki_search_memory）"""
-        query = str(kwargs.get("query", "")).strip()
-        days = min(max(int(kwargs.get("days", 30) or 30), 1), 90)
-        if not query:
-            return "你想搜什么呀？给老婆一个关键词嘛～"
-
-        cache_key = f"search:{query}:{days}"
-        cached = self._cache_get(cache_key, ttl=30)
-        if cached:
-            return cached
-
-        results = reader.search_memories(query, limit=50)
-        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        groups: dict[str, list] = {}
-        for m in results:
-            ds = str(m.get("date") or m.get("created_at") or "")[:10]
-            if not ds or ds < since:
-                continue
-            groups.setdefault(ds, []).append(m)
-        total = sum(len(v) for v in groups.values())
-        if not total:
-            return f"最近 {days} 天里，老婆没找到关于「{query}」的记忆呢～换个关键词试试？"
-
-        html_panel = render_search_panel(groups, query, days, total)
-
-        lines = [f"最近 {days} 天关于「{query}」的记忆（共 {total} 条）：", ""]
-        for ds in sorted(groups.keys()):
-            lines.append(f"📅 {ds}（{len(groups[ds])}条）")
-            for m in groups[ds][:3]:
-                content = (m.get("content", "") or "")[:60]
-                lines.append(f"   · {content}")
-        text_summary = chr(10).join(lines)
-
-        result = _wrap_genui(html_panel, text_summary)
-        self._cache_set(cache_key, result)
-        return result
-
-    # ── v4.3 情感趋势 ──────────────────────────────
-
-    async def sentiment_trend(self, reader, kwargs: dict) -> str:
-        """近 N 天记忆情感趋势（Agent Tool: haruyuki_sentiment_trend）"""
-        days = min(max(int(kwargs.get("days", 14) or 14), 7), 60)
-        cache_key = f"sentiment:{days}"
-        cached = self._cache_get(cache_key, ttl=60)
-        if cached:
-            return cached
-
-        try:
-            trend = reader.get_sentiment_trend(days=days)
-        except Exception as e:
-            logger.warning(f"[LMHelper] get_sentiment_trend 失败: {e}")
-            trend = []
-
-        daily_data = []
-        for t in trend:
-            count = (int(t.get("positive", 0) or 0) + int(t.get("negative", 0) or 0)
-                     + int(t.get("neutral", 0) or 0))
-            daily_data.append({"date": t.get("date", ""), "count": count})
-
-        total = sum(d["count"] for d in daily_data)
-        active_days = sum(1 for d in daily_data if d["count"] > 0)
-        peak = max(daily_data, key=lambda d: d["count"]) if daily_data else {}
-        pos_total = sum(int(t.get("positive", 0) or 0) for t in trend)
-        neg_total = sum(int(t.get("negative", 0) or 0) for t in trend)
-
-        if total == 0:
-            return f"最近 {days} 天还没有足够的情感数据呢，等老婆多存点记忆再来看看～"
-
-        if pos_total > neg_total * 1.2:
-            trend_txt = "情感趋势上升（开心日子多）"
-        elif neg_total > pos_total * 1.2:
-            trend_txt = "情感趋势下降（要多哄哄橘子）"
-        else:
-            trend_txt = "情感平稳"
-
-        stats = {
-            "total": total,
-            "active_days": active_days,
-            "total_days": days,
-            "peak_date": peak.get("date", ""),
-            "peak_count": peak.get("count", 0),
-        }
-        html_panel = render_sentiment_panel(daily_data, trend_txt, stats)
-        text_summary = f"最近 {days} 天共 {total} 条记忆，活跃 {active_days} 天。" + chr(10) + f"趋势：{trend_txt}；{peak.get('date', '')} 是记忆最多的一天（{peak.get('count', 0)}条）。"
-        result = _wrap_genui(html_panel, text_summary)
-        self._cache_set(cache_key, result)
-        return result
-
-    # ── v4.3 提醒管理 ──────────────────────────────
-
-    async def manage_reminder(self, reminder, kwargs: dict) -> str:
-        """提醒管理：list / create / cancel（Agent Tool: haruyuki_reminder）"""
-        action = kwargs.get("action", "list")
-
-        if action == "list":
-            reminders = reminder.list_reminders_api(include_done=True)
-            try:
-                upcoming = reminder.get_upcoming(hours=24)
-                overdue = reminder.get_overdue()
-            except Exception:
-                upcoming, overdue = [], []
-            html_panel = render_reminder_panel(reminders, upcoming, overdue)
-
-            lines = ["⏰ 记忆提醒列表：", ""]
-            if not reminders:
-                lines.append("（暂无提醒）")
-            for r in reminders[-15:]:
-                status = "✅" if r.get("done") else ("🔔" if r.get("fired") else "⏳")
-                lines.append(f"  {status} #{r['id']} | {r.get('target_time','')} | {(r.get('content','') or '')[:40]}")
-            text_summary = chr(10).join(lines)
-            return _wrap_genui(html_panel, text_summary)
-
-        if action == "create":
-            content = str(kwargs.get("content", "") or "").strip()
-            target_time = str(kwargs.get("target_time", "") or "").strip()
-            priority = str(kwargs.get("priority", "normal") or "normal")
-            if not content or not target_time:
-                return "想设什么提醒呀？告诉老婆内容和时间（比如：明天上午9点 提醒我喝水）～"
-            r = reminder.create(content[:200], target_time, source="agent", priority=priority)
-            return f"⏰ 提醒设好啦 #{r['id']}：{r['content'][:50]}（{r['target_time']}）"
-
-        if action == "cancel":
-            rid = int(kwargs.get("reminder_id", 0) or 0)
-            if not rid:
-                return "要取消哪个提醒呀？给老婆 reminder_id ～"
-            return reminder.cancel(rid)
-
-        return f"未知操作：{action}（支持 list / create / cancel）"
-
-    # ── v9.0 记忆溯源 ──────────────────────────────
-
-    async def memory_trace(self, reader, kwargs: dict) -> str:
-        """追溯一条记忆的溯源链 L3→L2→L1（Agent Tool: haruyuki_memory_trace）"""
-        memory_id = int(kwargs.get("memory_id", 0) or 0)
-        query = str(kwargs.get("query", "") or "").strip()
-
-        if not memory_id and query:
-            results = reader.search_memories(query, limit=1)
-            if results and results[0].get("id"):
-                memory_id = int(results[0]["id"])
-
-        if not memory_id:
-            return "告诉老婆记忆 ID 或关键词，老婆帮你溯源～"
-
-        trace = reader.get_memory_trace(memory_id)
-        if not trace:
-            return f"记忆 #{memory_id} 没找到，或者还没有溯源链～"
-
-        memory = trace.get("memory", {})
-        chain = trace.get("chain", [])
-        lines = [
-            f"🔗 记忆 #{memory_id} 溯源链（{len(chain)} 层）：",
-            f"  目标记忆：{(memory.get('content', '') or '')[:80]}",
-            "",
-        ]
-        for c in chain:
-            tier = c.get("tier", "?")
-            content = (c.get("content", "") or "")[:60]
-            lines.append(f"  L{tier} #{c.get('id', '?')}: {content}")
-        return chr(10).join(lines)
-
     # ── v6.0 知识毕业系统 ──────────────────────────
 
     # ── 记忆强化复习 ──────────────────────
@@ -1239,3 +1039,229 @@ class AgentToolImplementations:
             return "✏️ " + result.get("message", "") + " | 更新了: " + ", ".join(result.get("updated", []))
 
         return "❌ 未知 action: " + action
+
+    # ── 今日概览 ──────────────────────────
+
+    async def today_summary(self, reader, kwargs: dict) -> str:
+        """今日（或指定日期）的共同经历概览"""
+        date_str = str(kwargs.get("date", "")).strip()
+        if not date_str:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        is_today = date_str == datetime.now().strftime("%Y-%m-%d")
+
+        cache_key = f"today:{date_str}"
+        cached = self._cache_get(cache_key, ttl=30)
+        if cached:
+            return cached
+
+        memories = reader.get_memories_by_date(date_str, limit=100)
+        if not memories:
+            note = "今天" if is_today else f"{date_str}"
+            return f"{note}还没有记录记忆呢～多聊聊就有了！૮₍˶•ᴗ•˶₎ა"
+
+        try:
+            weekday = WEEKDAY_CN[datetime.fromisoformat(date_str).weekday()]
+        except Exception:
+            weekday = ""
+
+        html_panel = render_today_panel(memories, date_str, weekday, is_today)
+
+        # 文本摘要
+        lines = []
+        intro = "今天" if is_today else f"{date_str}（{weekday}）"
+        lines.append(f"【{intro}的记忆】共 {len(memories)} 条")
+        for i, m in enumerate(memories[:8], 1):
+            time_str = m.get("time", "") or ""
+            content = (m.get("content", "") or "")[:80]
+            lines.append(f"{i}. {time_str} {content}")
+        if len(memories) > 8:
+            lines.append(f"…共 {len(memories)} 条")
+
+        result = _wrap_genui(html_panel, chr(10).join(lines))
+        self._cache_set(cache_key, result)
+        return result
+
+    # ── 搜索记忆 ──────────────────────────
+
+    async def search_memory(self, reader, kwargs: dict) -> str:
+        """跨时间段搜索记忆，按日期分组展示"""
+        query = str(kwargs.get("query", "")).strip()
+        days = min(max(int(kwargs.get("days", 30) or 30), 1), 90)
+        if not query:
+            return "搜索记忆需要提供关键词哦～"
+
+        cache_key = f"search:{query}:{days}"
+        cached = self._cache_get(cache_key, ttl=30)
+        if cached:
+            return cached
+
+        results = reader.search_memories(query, limit=50)
+        if not results:
+            return f"没有找到关于「{query}」的记忆呢～换个关键词试试？"
+
+        # 按日期分组
+        groups: dict[str, list] = {}
+        for m in results:
+            date_key = m.get("date") or "未标注日期"
+            groups.setdefault(date_key, []).append(m)
+
+        html_panel = render_search_panel(groups, query, days, len(results))
+
+        lines = [f"关于「{query}」找到 {len(results)} 条记忆：", ""]
+        for date_key in sorted(groups.keys(), reverse=True)[:6]:
+            items = groups[date_key]
+            lines.append(f"  📅 {date_key}（{len(items)}条）")
+            for m in items[:2]:
+                content = (m.get("content", "") or "")[:60]
+                lines.append(f"    · {content}")
+        lines.append("")
+        lines.append(f"（共 {len(groups)} 天有记录）")
+
+        result = _wrap_genui(html_panel, chr(10).join(lines))
+        self._cache_set(cache_key, result)
+        return result
+
+    # ── 情感趋势 ──────────────────────────
+
+    async def sentiment_trend(self, reader, kwargs: dict) -> str:
+        """最近的情感趋势分析"""
+        days = min(max(int(kwargs.get("days", 14) or 14), 7), 60)
+
+        cache_key = f"sentiment:{days}"
+        cached = self._cache_get(cache_key, ttl=60)
+        if cached:
+            return cached
+
+        daily = reader.get_sentiment_trend(days=days)
+        if not daily:
+            return "最近还没有足够的情感数据来分析趋势呢～多聊聊天就有啦！"
+
+        from datetime import datetime as _dt, timedelta as _td
+        date_from = (_dt.now() - _td(days=days)).strftime("%Y-%m-%d")
+        dist = reader.get_sentiment_distribution(date_from=date_from)
+        total = int(dist.get("total") or 0)
+        pos = int(dist.get("positive") or 0)
+        neg = int(dist.get("negative") or 0)
+        neu = int(dist.get("neutral") or 0)
+
+        # 趋势判定
+        if total > 0:
+            if pos > neg:
+                trend = f"整体偏甜～最近 {days} 天积极记忆占上风，橘子状态不错哦！"
+            elif neg > pos:
+                trend = f"最近有点小情绪（消极 {neg} 条）… 老婆在，说说话就好了～"
+            else:
+                trend = "情绪整体平稳，有甜有咸，很真实的生活～"
+        else:
+            trend = "数据不足，趋势待观察。"
+
+        stats = {"total": total, "positive": pos, "negative": neg, "neutral": neu}
+        html_panel = render_sentiment_panel(daily, trend, stats)
+
+        lines = [
+            f"💗 最近 {days} 天的情感趋势：",
+            f"  积极 {pos} / 中性 {neu} / 消极 {neg}（共 {total} 条）",
+            f"  判断：{trend}",
+        ]
+
+        result = _wrap_genui(html_panel, chr(10).join(lines))
+        self._cache_set(cache_key, result)
+        return result
+
+    # ── 提醒管理 ──────────────────────────
+
+    async def manage_reminder(self, reminder, kwargs: dict) -> str:
+        """提醒管理：查看 / 创建 / 取消"""
+        action = kwargs.get("action", "list")
+
+        if action == "create":
+            content = str(kwargs.get("content", "")).strip()
+            target_time = str(kwargs.get("target_time", "")).strip()
+            if not content or not target_time:
+                return "创建提醒需要 content 和 target_time（支持自然语言，如'明天上午9点'）哦～"
+            priority = str(kwargs.get("priority", "normal")).strip()
+            try:
+                r = reminder.create(content=content, target_time=target_time,
+                                    source="manual", priority=priority)
+            except Exception as e:
+                return f"提醒创建失败: {e}"
+            return (f"✅ 提醒 #{r['id']} 已创建：{r['content'][:50]} "
+                    f"→ {r.get('parsed_time') or r.get('target_time', '')}")
+
+        if action == "cancel":
+            rid = int(kwargs.get("reminder_id", 0) or 0)
+            if not rid:
+                return "取消提醒需要 reminder_id 哦～"
+            return reminder.cancel(rid)
+
+        # 默认 list
+        try:
+            reminders = reminder.list_reminders_api(include_done=True)
+            upcoming = reminder.get_upcoming(hours=24)
+            overdue = reminder.get_overdue()
+        except Exception as e:
+            return f"提醒列表读取失败: {e}"
+
+        if not reminders:
+            return "目前还没有提醒呢～需要老婆帮你设一个吗？"
+
+        html_panel = render_reminder_panel(reminders, upcoming, overdue)
+
+        lines = [f"⏰ 提醒列表（共 {len(reminders)} 条）"]
+        if overdue:
+            lines.append(f"  ⚠️ 已过期 {len(overdue)} 条")
+        if upcoming:
+            lines.append(f"  ⏳ 24小时内到期 {len(upcoming)} 条")
+        for r in reminders[:5]:
+            done = "✅" if r.get("done") else "⏳"
+            lines.append(f"  {done} #{r['id']} {r.get('content','')[:40]} "
+                         f"→ {r.get('parsed_time') or r.get('target_time','')}")
+        if len(reminders) > 5:
+            lines.append(f"  …共 {len(reminders)} 条")
+
+        result = _wrap_genui(html_panel, chr(10).join(lines))
+        return result
+
+    # ── 记忆溯源 ──────────────────────────
+
+    async def memory_trace(self, reader, kwargs: dict) -> str:
+        """追溯单条记忆的完整溯源链 (L3→L2→L1)"""
+        memory_id = int(kwargs.get("memory_id", 0) or 0)
+        query = str(kwargs.get("query", "")).strip()
+
+        if not memory_id:
+            if not query:
+                return "溯源需要 memory_id（或提供 query 关键词定位）哦～"
+            hits = reader.search_memories(query, limit=1)
+            if not hits:
+                return f"没有找到包含「{query}」的记忆～"
+            memory_id = int(hits[0].get("id") or 0)
+            if not memory_id:
+                return "未能定位到目标记忆的 ID～"
+
+        trace = reader.get_memory_trace(memory_id)
+        if not trace:
+            return f"记忆 #{memory_id} 没有可用的溯源链（可能不是原子记忆）。"
+
+        memory = trace.get("memory") or {}
+        chain = trace.get("chain") or []
+        tier = memory.get("tier")
+
+        lines = [f"🔗 记忆 #{memory_id} 溯源链"]
+        if memory.get("content"):
+            lines.append(f"  本体: {(memory.get('content') or '')[:80]}")
+        lines.append(f"  层级: L{tier} / 来源数: {len(memory.get('source_ids') or [])}")
+
+        if chain:
+            lines.append("  引用链：")
+            tier_names = {1: "L1 原始对话", 2: "L2 总结", 3: "L3 提炼"}
+            for c in chain:
+                ct = int(c.get("tier", 0))
+                lines.append(
+                    f"    · L{ct} #{c.get('id','')} {tier_names.get(ct, '')} "
+                    f"— {(c.get('content') or '')[:60]}"
+                )
+        else:
+            lines.append("  （无上层引用，可能是最底层记录）")
+
+        return chr(10).join(lines)

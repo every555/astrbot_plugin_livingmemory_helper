@@ -86,19 +86,19 @@ class LivingMemoryReader:
                 cols = [r[1] for r in conn.execute("PRAGMA table_info(documents_fts)").fetchall()]
                 # AstrBot 核心用 search_text contentless 表 → 不要碰！
                 if 'search_text' in cols:
-                    logger.info("[LMHelper v5.7.1fix] documents_fts 由 AstrBot 核心管理，不抢占，FTS 搜索使用 LIKE 回退")
+                    logger.info("[LMHelper v6.0] documents_fts 由 AstrBot 核心管理，不抢占，FTS 搜索使用 LIKE 回退")
                     conn.close()
                     return
                 # 旧版 livingmemory 三列格式 → 转为 LIKE 回退，不再维护自己的 FTS
-                logger.info("[LMHelper v5.7.1fix] 检测到旧版三列 documents_fts，不再维护，FTS 搜索使用 LIKE 回退")
+                logger.info("[LMHelper v6.0] 检测到旧版三列 documents_fts，不再维护，FTS 搜索使用 LIKE 回退")
                 conn.close()
                 return
 
             # 表不存在 → 也不创建，让 AstrBot 核心管理
-            logger.info("[LMHelper v5.7.1fix] documents_fts 未创建，交给 AstrBot 核心管理")
+            logger.info("[LMHelper v6.0] documents_fts 未创建，交给 AstrBot 核心管理")
             conn.close()
         except Exception as e:
-            logger.warning(f"[LMHelper v4.1] FTS5 初始化跳过（表可能已存在或无权限）: {e}")
+            logger.warning(f"[LMHelper v6.0] FTS5 初始化跳过（表可能已存在或无权限）: {e}")
 
     def _parse_meta(self, metadata_str: str) -> dict:
         if not metadata_str:
@@ -388,13 +388,13 @@ class LivingMemoryReader:
                         (prefix_query, limit * 2)
                     ).fetchall()
                     if rows:
-                        logger.debug(f"[LMHelper v5.1] FTS5 前缀匹配 ({len(rows)} 条): '{query}'")
+                        logger.debug(f"[LMHelper v6.0] FTS5 前缀匹配 ({len(rows)} 条): '{query}'")
                 if rows:
                     results = [dict(r) for r in rows]
             except Exception as e:
                 logger.debug(f"[LMHelper] FTS5 检索失败，降级到 LIKE: {e}")
         else:
-            logger.debug(f"[LMHelper v5.7.2fix] FTS5 列不匹配，直接使用 LIKE")
+            logger.debug(f"[LMHelper v6.0] FTS5 列不匹配，直接使用 LIKE")
 
         if not results:
             # 3. LIKE 兜底
@@ -433,9 +433,9 @@ class LivingMemoryReader:
                             WHERE parent_memory_id IN ({placeholders}) AND status = 'active'""",
                         [now_ts] + ids
                     )
-                    logger.debug(f"[LMHelper v5.2] 强化 {len(ids)} 条记忆的 atoms")
+                    logger.debug(f"[LMHelper v6.0] 强化 {len(ids)} 条记忆的 atoms")
                 except Exception as e:
-                    logger.debug(f"[LMHelper v5.2] atom 强化跳过: {e}")
+                    logger.debug(f"[LMHelper v6.0] atom 强化跳过: {e}")
                 conn.commit()
 
         result = [self._format_row(r) for r in results]
@@ -512,7 +512,7 @@ class LivingMemoryReader:
         conn.commit()
         conn.close()
         logger.info(
-            f"[LMHelper v5.2] Tier 重算完成: "
+            f"[LMHelper v6.0] Tier 重算完成: "
             f"↑{stats['promoted']} ↓{stats['demoted']} ={stats['unchanged']}"
         )
         return stats
@@ -641,9 +641,9 @@ class LivingMemoryReader:
                 results.append(dict(r))
             
             if results:
-                logger.debug(f"[LMHelper v5.2] 图增强: {len(doc_ids)} docs → {len(results)} 关联记忆 (via {len(node_ids)} nodes)")
+                logger.debug(f"[LMHelper v6.0] 图增强: {len(doc_ids)} docs → {len(results)} 关联记忆 (via {len(node_ids)} nodes)")
         except Exception as e:
-            logger.debug(f"[LMHelper v5.2] 图增强失败: {e}")
+            logger.debug(f"[LMHelper v6.0] 图增强失败: {e}")
         
         conn.close()
         return [self._format_row(r) for r in results]
@@ -696,7 +696,7 @@ class LivingMemoryReader:
         conn.commit()
         atom_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.close()
-        logger.info(f"[LMHelper v5.2] 决策追踪: #{atom_id} '{content[:50]}...' (supersedes={supersedes_id})")
+        logger.info(f"[LMHelper v6.0] 决策追踪: #{atom_id} '{content[:50]}...' (supersedes={supersedes_id})")
         return atom_id
 
     def get_active_decisions(self, limit: int = 10) -> list:
