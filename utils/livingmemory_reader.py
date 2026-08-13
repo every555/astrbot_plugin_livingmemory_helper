@@ -360,39 +360,70 @@ class LivingMemoryReader:
     def _multi_strategy_search(self, query: str, limit: int):
         """【v6.2】多路检索 — 返回各路的原始排序列表，供 RRF 融合。
 
-        复用已有的 FTS5/LIKE 检索逻辑，不重复 SQL。
+        FTS5 路径自动检测可用表：
+        - livingmemory_memories_fts（LivingMemory 自己的 FTS5，优先）
+        - documents_fts（可能被 AstrBot 核心管理，检测后再用）
+
         返回格式: [(strategy_name, [results]), ...]
         """
         conn = self._connect()
         lists = []
 
-        # 路径 1: FTS5 BM25
-        fts_usable = self._fts_column_exists(conn)
-        if fts_usable:
+        # ── 路径 1: FTS5 BM25 ──
+        fts_table = None
+        fts_join_col = None
+
+        # 1a. 优先检测 livingmemory_memories_fts（LivingMemory 自带的 FTS5）
+        try:
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='livingmemory_memories_fts'"
+            ).fetchone()
+            if exists:
+                fts_table = "livingmemory_memories_fts"
+                fts_join_col = "doc_id"
+        except Exception:
+            pass
+
+        # 1b. 降级到 documents_fts（如果 AstrBot 核心没有占用）
+        if not fts_table and self._fts_column_exists(conn):
+            fts_table = "documents_fts"
+            fts_join_col = "doc_id"
+
+        if fts_table:
             try:
+                # JOIN 条件：livingmemory_memories_fts.doc_id = documents.id（整数）
+                # documents_fts 的 JOIN 不同，用 COALESCE
+                if fts_table == "livingmemory_memories_fts":
+                    join_clause = "f.doc_id = d.id"
+                else:
+                    join_clause = "f.doc_id = COALESCE(d.doc_id, d.id)"
+
+                # 精确匹配
                 rows = conn.execute(
-                    """SELECT d.*, d.memory_tier as tier FROM documents d
-                       INNER JOIN documents_fts f ON (f.doc_id = COALESCE(d.doc_id, d.id))
-                       WHERE documents_fts MATCH ?
-                       ORDER BY rank LIMIT ?""",
+                    f"""SELECT d.*, d.memory_tier as tier FROM documents d
+                        INNER JOIN {fts_table} f ON ({join_clause})
+                        WHERE {fts_table} MATCH ?
+                        ORDER BY rank LIMIT ?""",
                     (query, limit),
                 ).fetchall()
                 if not rows:
+                    # 前缀匹配
                     tokens = query.replace('"', '').split()
                     prefix_q = f'"{query}"*' if len(tokens) == 1 else ' '.join(f'{t}*' for t in tokens)
                     rows = conn.execute(
-                        """SELECT d.*, d.memory_tier as tier FROM documents d
-                           INNER JOIN documents_fts f ON (f.doc_id = COALESCE(d.doc_id, d.id))
-                           WHERE documents_fts MATCH ?
-                           ORDER BY rank LIMIT ?""",
+                        f"""SELECT d.*, d.memory_tier as tier FROM documents d
+                            INNER JOIN {fts_table} f ON ({join_clause})
+                            WHERE {fts_table} MATCH ?
+                            ORDER BY rank LIMIT ?""",
                         (prefix_q, limit),
                     ).fetchall()
                 if rows:
                     lists.append(("fts", [self._format_row(dict(r)) for r in rows]))
+                    logger.debug(f"[LMHelper v6.2] FTS5 ({fts_table}) 命中 {len(rows)} 条: '{query}'")
             except Exception as e:
-                logger.debug(f"[LMHelper v6.2] FTS5 路失败: {e}")
+                logger.debug(f"[LMHelper v6.2] FTS5 路失败 ({fts_table}): {e}")
 
-        # 路径 2: LIKE 模糊（中文子串优势）
+        # ── 路径 2: LIKE 模糊（中文子串优势） ──
         try:
             rows = conn.execute(
                 "SELECT *, memory_tier as tier FROM documents "
@@ -463,6 +494,7 @@ class LivingMemoryReader:
         if results:
             ids = [r["id"] for r in results if r.get("id")]
             if ids:
+                conn = self._connect()
                 placeholders = ",".join("?" * len(ids))
                 conn.execute(
                     f"UPDATE documents SET access_count = COALESCE(access_count, 0) + 1, "
@@ -482,14 +514,13 @@ class LivingMemoryReader:
                             WHERE parent_memory_id IN ({placeholders}) AND status = 'active'""",
                         [now_ts] + ids
                     )
-                    logger.debug(f"[LMHelper v6.0] 强化 {len(ids)} 条记忆的 atoms")
+                    logger.debug(f"[LMHelper v6.2] 强化 {len(ids)} 条记忆的 atoms")
                 except Exception as e:
-                    logger.debug(f"[LMHelper v6.0] atom 强化跳过: {e}")
+                    logger.debug(f"[LMHelper v6.2] atom 强化跳过: {e}")
                 conn.commit()
+                conn.close()
 
-        result = [self._format_row(r) for r in results]
-        conn.close()
-        return result
+        return results[:limit]
 
     def recompute_tiers(self) -> dict:
         """【v5.2】重算所有记忆的 tier — 强化感知 + 时间感知"""
