@@ -7,6 +7,14 @@ ChatUI 内联交互面板生成模块 (v4.2)
 
 from typing import Any
 from datetime import datetime
+from html import escape as _html_escape
+
+
+def _esc(v) -> str:
+    """v6.4 security fix: HTML-escape user-derived data before injecting into panels."""
+    if v is None:
+        return ""
+    return _html_escape(str(v), quote=True)
 
 # ══════════════════════════════════════════════════════
 # 公共样式
@@ -272,13 +280,13 @@ def render_recall_panel(results: list[dict], query: str) -> str:
         tags = m.get("tags", [])
         imp = m.get("importance", 0)
         star = "⭐" if imp > 0.8 else ("✨" if imp > 0.6 else "")
-        tags_html = "".join(f'<span class="tag">{t}</span>' for t in tags[:3])
+        tags_html = "".join(f'<span class="tag">{_esc(t)}</span>' for t in tags[:3])
 
         cards_html += f"""
 <div class="card" onclick="this.classList.toggle('expanded')">
-  <div class="card-time">{time_str}</div>
+  <div class="card-time">{_esc(time_str)}</div>
   <div class="card-title">{star} 记忆 #{i} {tags_html}</div>
-  <div class="card-content">{content}</div>
+  <div class="card-content">{_esc(content)}</div>
 </div>"""
 
     body = f"""
@@ -288,14 +296,14 @@ def render_recall_panel(results: list[dict], query: str) -> str:
     <span class="panel-badge">{len(results)} 条</span>
   </div>
   <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
-    关于「<span style="color:var(--accent2)">{query}</span>」的记忆
+    关于「<span style="color:var(--accent2)">{_esc(query)}</span>」的记忆
   </p>
   {cards_html}
   <p style="font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;">
     点击卡片展开详情
   </p>
 </div>"""
-    return _wrap_html(f"回忆 - {query}", body)
+    return _wrap_html(f"回忆 - {_esc(query)}", body)
 
 
 # ══════════════════════════════════════════════════════
@@ -304,7 +312,7 @@ def render_recall_panel(results: list[dict], query: str) -> str:
 
 def render_today_panel(memories: list[dict], date_str: str, weekday: str, is_today: bool = False) -> str:
     """生成今日摘要的时间线面板"""
-    intro = "今天" if is_today else f"{date_str}（{weekday}）"
+    intro = "今天" if is_today else f"{_esc(date_str)}（{_esc(weekday)}）"
 
     # 统计
     total = len(memories)
@@ -325,9 +333,9 @@ def render_today_panel(memories: list[dict], date_str: str, weekday: str, is_tod
 
         cards_html += f"""
 <div class="card" onclick="this.classList.toggle('expanded')">
-  <div class="card-time">{time_str} {sent_icon}</div>
-  <div class="card-title">{star} {content[:50]}{'...' if len(content) > 50 else ''}</div>
-  <div class="card-content">{content}</div>
+  <div class="card-time">{_esc(time_str)} {sent_icon}</div>
+  <div class="card-title">{star} {_esc(content[:50])}{'...' if len(content) > 50 else ''}</div>
+  <div class="card-content">{_esc(content)}</div>
 </div>"""
 
     if total > 10:
@@ -361,7 +369,7 @@ def render_today_panel(memories: list[dict], date_str: str, weekday: str, is_tod
     点击卡片展开详情
   </p>
 </div>"""
-    return _wrap_html(f"今日摘要 - {date_str}", body)
+    return _wrap_html(f"今日摘要 - {_esc(date_str)}", body)
 
 
 # ══════════════════════════════════════════════════════
@@ -381,16 +389,16 @@ def render_search_panel(groups: dict[str, list], query: str, days: int, total: i
             time_str = m.get("time", "") or ""
             items_html += f"""
       <div class="card" onclick="this.classList.toggle('expanded')">
-        <div class="card-time">{time_str}</div>
-        <div class="card-title">{content[:40]}{'...' if len(content) > 40 else ''}</div>
-        <div class="card-content">{content}</div>
+        <div class="card-time">{_esc(time_str)}</div>
+        <div class="card-title">{_esc(content[:40])}{'...' if len(content) > 40 else ''}</div>
+        <div class="card-content">{_esc(content)}</div>
       </div>"""
         if len(items) > 5:
             items_html += f'<p style="font-size:11px;color:var(--text-dim);">…共 {len(items)} 条</p>'
 
         groups_html += f"""
     <div class="group-header collapsible" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
-      📅 <span>{date_key}</span>（{len(items)}条）
+      📅 <span>{_esc(date_key)}</span>（{len(items)}条）
     </div>
     <div class="group-body">{items_html}</div>"""
 
@@ -401,7 +409,7 @@ def render_search_panel(groups: dict[str, list], query: str, days: int, total: i
     <span class="panel-badge">{total} 条</span>
   </div>
   <p style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">
-    最近 {days} 天关于「<span style="color:var(--accent2)">{query}</span>」的记忆
+    最近 {days} 天关于「<span style="color:var(--accent2)">{_esc(query)}</span>」的记忆
   </p>
   <p style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">
     跨越 {len(sorted_dates)} 个日期
@@ -411,7 +419,7 @@ def render_search_panel(groups: dict[str, list], query: str, days: int, total: i
     点击日期展开记忆列表
   </p>
 </div>"""
-    return _wrap_html(f"搜索 - {query}", body)
+    return _wrap_html(f"搜索 - {_esc(query)}", body)
 
 
 # ══════════════════════════════════════════════════════
@@ -427,7 +435,7 @@ def render_sentiment_panel(daily_data: list[dict], trend: str, stats: dict) -> s
         count = d.get("count", 0)
         height = int((count / max_count) * 100) if max_count > 0 else 0
         date_label = d.get("date", "")[-5:]  # MM-DD
-        bars_html += f'<div class="bar" style="height:{max(height, 3)}%" data-tip="{d.get("date","")}: {count}条"></div>'
+        bars_html += f'<div class="bar" style="height:{max(height, 3)}%" data-tip="{_esc(d.get("date",""))}: {count}条"></div>'
 
     # 趋势样式
     trend_class = "trend-up" if "上升" in trend else ("trend-down" if "下降" in trend else "trend-flat")
@@ -448,9 +456,9 @@ def render_sentiment_panel(daily_data: list[dict], trend: str, stats: dict) -> s
         mid = daily_data[mid_idx].get("date", "")[-5:] if mid_idx < len(daily_data) else ""
         date_labels = f"""
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-top:4px;">
-        <span>{first}</span>
-        <span>{mid}</span>
-        <span>{last}</span>
+        <span>{_esc(first)}</span>
+        <span>{_esc(mid)}</span>
+        <span>{_esc(last)}</span>
       </div>"""
 
     body = f"""
@@ -478,10 +486,10 @@ def render_sentiment_panel(daily_data: list[dict], trend: str, stats: dict) -> s
   </div>
   {date_labels}
   <div style="margin-top:12px;text-align:center;">
-    <span class="trend-badge {trend_class}">{trend_icon} {trend}</span>
+    <span class="trend-badge {trend_class}">{trend_icon} {_esc(trend)}</span>
   </div>
   <p style="font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;">
-    {peak} 是记忆最多的一天
+    {_esc(peak)} 是记忆最多的一天
   </p>
 </div>"""
     return _wrap_html("情感趋势", body)
@@ -614,19 +622,19 @@ def _render_reminder_card(r: dict, status: str = "normal") -> str:
 <div class="reminder-card {status} {'done' if done else ''}" onclick="this.classList.toggle('expanded')">
   <div class="reminder-top">
     <span class="reminder-status">{icon}</span>
-    <span class="reminder-id">#{rid}</span>
+    <span class="reminder-id">#{_esc(rid)}</span>
   </div>
-  <div class="reminder-time">🕐 {time_display}</div>
-  <div class="reminder-content">{content[:60]}{'...' if len(content) > 60 else ''}</div>
+  <div class="reminder-time">🕐 {_esc(time_display)}</div>
+  <div class="reminder-content">{_esc(content[:60])}{'...' if len(content) > 60 else ''}</div>
   <div class="reminder-detail">{'-' * 30}
-内容: {content}
-目标时间: {target_time}
-解析时间: {parsed or '(未解析)'}
-来源: {source_label}
-优先级: {priority_label}
+内容: {_esc(content)}
+目标时间: {_esc(target_time)}
+解析时间: {_esc(parsed or '(未解析)')}
+来源: {_esc(source_label)}
+优先级: {_esc(priority_label)}
 状态: {'已完成' if done else ('已触发' if fired else '待办')}</div>
   <div style="display:flex;gap:4px;align-items:center;margin-top:4px;">
-    <span class="reminder-priority {priority_class}">{priority_label}</span>
-    <span class="reminder-source">{source_label}</span>
+    <span class="reminder-priority {_esc(priority_class)}">{_esc(priority_label)}</span>
+    <span class="reminder-source">{_esc(source_label)}</span>
   </div>
 </div>"""

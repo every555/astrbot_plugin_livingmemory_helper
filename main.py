@@ -794,13 +794,17 @@ class Main(star.Star):
                 yield event.plain_result(result)
             
             elif action == "export":
-                output_path = parts[1] if len(parts) > 1 else os.path.join(self.data_dir, "ontology_export.jsonl")
+                # v6.4 security fix: 导出路径强制限制在插件 data_dir 内（防任意文件写）
+                out_name = os.path.basename(parts[1]) if len(parts) > 1 else "ontology_export.jsonl"
+                output_path = os.path.join(self.data_dir, out_name)
                 self.ontology.export_jsonl(output_path)
                 yield event.plain_result(f"✅ 已导出到 {output_path}")
             
             elif action == "import" and len(parts) >= 2:
-                self.ontology.import_jsonl(parts[1])
-                yield event.plain_result(f"✅ 已从 {parts[1]} 导入")
+                # v6.4 security fix: 导入路径强制限制在插件 data_dir 内（防任意文件读）
+                in_path = os.path.join(self.data_dir, os.path.basename(parts[1]))
+                self.ontology.import_jsonl(in_path)
+                yield event.plain_result(f"✅ 已从 {in_path} 导入")
             
             else:
                 yield event.plain_result("❌ 命令格式错误，请输入 /ontology 查看帮助")
