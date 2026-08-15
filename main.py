@@ -2407,12 +2407,100 @@ class Main(star.Star):
                 logger.warning(f"[Meeting] 例会守护异常: {e}")
             await asyncio.sleep(3 * 3600)  # 每3小时检查一次
 
+    def _webchat_has_live_listener(self) -> bool:
+        """v6.4.1 检查 webchat 当前会话是否有活跃的实时连接（WS流/被动订阅）。
+
+        返回 False 说明聊天推送只会静默存库（橘子看不到），
+        需要桌面增强通道（Toast/语音）兜底。2026-08-15 14:40 闹钟事故的修复。"""
+        try:
+            if not self._last_msg_origin:
+                return False
+            # umo 形如 webchat:FriendMessage:webchat!zzz!<conversation_id>
+            session_id = self._last_msg_origin.split(":", 2)[-1]
+            if not session_id.startswith("webchat!"):
+                return False  # 非 webchat 平台（QQ等），无法检测，保守当作无人在线
+            conversation_id = session_id.split("!", 2)[2]
+            from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queue_mgr
+            return bool(webchat_queue_mgr.list_back_request_ids(conversation_id))
+        except Exception:
+            # 框架内部 API 变动时保守处理：当作无人在线，走增强通道
+            return False
+
+    async def _desktop_alert(self, msg: str):
+        """v6.4.1 桌面增强通知：Windows Toast 弹窗（常驻+循环闹铃）+ TTS 语音喊话。
+
+        背景：橘子午休时浏览器标签页休眠、WS 断开，webchat 聊天推送会静默存库，
+        消息永远不可见。Toast 和语音不依赖浏览器连接，物理层保证叫到人。
+        - Toast：任何情况都弹（轻量、不干扰正在聊天的场景）
+        - 语音：仅 webchat 无活跃连接时喊话（有人在线看着聊天窗就不吵）"""
+        import base64
+        import re as _re
+        import subprocess
+
+        has_live = self._webchat_has_live_listener()
+
+        # 清洗出适合弹窗/朗读的文本：去 emoji 符号、压空白、限长
+        clean = _re.sub(r"[\U00002300-\U000027BF\U0001F000-\U0001FAFF\u2705\u274C]", " ", msg)
+        clean = _re.sub(r"[\r\n\t]+", " ", clean)[:90]
+        clean = _re.sub(r"\s+", " ", clean).strip()
+        clean = _re.sub(r"\s+", " ", clean).strip()
+        if not clean:
+            return
+
+        # base64 传输避开所有引号/XML转义问题
+        b64 = base64.b64encode(clean.encode("utf-8")).decode("ascii")
+
+        toast_ps = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            "[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
+            "[Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom,ContentType=WindowsRuntime]|Out-Null;"
+            "$x=New-Object Windows.Data.Xml.Dom.XmlDocument;"
+            "$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'));"
+            "$esc=$t.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;');"
+            "$x.LoadXml('<toast duration=\"long\" scenario=\"reminder\"><visual><binding template=\"ToastGeneric\"><text>春雪提醒</text><text>'+$esc+'</text></binding></visual><audio src=\"ms-winsoundevent:Notification.Looping.Alarm\" loop=\"true\"/></toast>');"
+            "$n=New-Object Windows.UI.Notifications.ToastNotification($x);"
+            "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show($n)"
+        ) % b64
+
+        speak_ps = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            "Add-Type -AssemblyName System.Speech;"
+            "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+            "$s.Rate=1; $s.Volume=100;"
+            "$s.Speak([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')))"
+        ) % b64
+
+        def _run_ps(script: str) -> None:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-Command", script],
+                capture_output=True, timeout=60,
+            )
+
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _run_ps, toast_ps)
+            logger.info("[Reminder] 桌面 Toast 已触发")
+            if not has_live:
+                await loop.run_in_executor(None, _run_ps, speak_ps)
+                logger.info("[Reminder] 语音喊话已触发（webchat 无实时连接）")
+        except Exception as e:
+            logger.warning(f"[Reminder] 桌面增强通知失败: {e}")
+
     async def _send_reminder_notification(self, msg: str):
         """在聊天界面主动推送提醒通知
 
-        通过 context.send_message(umo, MessageChain) 发送到用户聊天窗口。
+        v6.4.1：先走桌面增强通道（Toast必弹 + 无连接时语音喊话），再走聊天推送。
+        通过 context.send_message(umo, MessageChain) 发送到用户聊天窗口，
+        注意 webchat 无活跃连接时 send 会静默存库而非实时送达。
         如果没有保存的 unified_msg_origin，则写入通知文件作为兜底。
         """
+        # --- 方式0: 桌面增强通知（v6.4.1 新增，物理层保底）---
+        try:
+            await self._desktop_alert(msg)
+        except Exception as e:
+            logger.warning(f"[Reminder] 桌面增强通知异常: {e}")
+
         # --- 方式1: 通过 AstrBot 在聊天界面发送（优先）---
         if self._last_msg_origin:
             try:
