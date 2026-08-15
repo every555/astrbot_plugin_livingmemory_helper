@@ -2310,6 +2310,13 @@ class Main(star.Star):
             self._auto_scan_task.cancel()
         if hasattr(self, '_dream_loop_task') and not self._dream_loop_task.done():
             self._dream_loop_task.cancel()
+        # v6.4.1 修复：reminder/meeting daemon 漏 cancel 导致热重载后僵尸任务
+        # 并发跑旧代码、抢先 mark_fired，新代码永远不执行（2026-08-15 闹钟事故）
+        for t in ('_reminder_loop_task', '_meeting_loop_task'):
+            task = getattr(self, t, None)
+            if task and not task.done():
+                task.cancel()
+                logger.info(f"[LMHelper v6.0] {t} 已取消")
         logger.info("[LMHelper v6.0] 所有后台任务已安全终止")
 
     # ═══════════════════ v4.0 Dream Engine 守护任务 ═══════════════════
@@ -2471,11 +2478,20 @@ class Main(star.Star):
         ) % b64
 
         def _run_ps(script: str) -> None:
-            subprocess.run(
+            # EncodedCommand: UTF-16LE base64，彻底避开命令行引号解析
+            enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+            r = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive",
-                 "-ExecutionPolicy", "Bypass", "-Command", script],
+                 "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc],
                 capture_output=True, timeout=60,
             )
+            try:  # v6.4.1 诊断日志（定位 Toast 静默失败用）
+                dbg = os.path.join(self.data_dir, "desktop_alert_debug.log")
+                with open(dbg, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] rc={r.returncode} "
+                            f"out={r.stdout[:200]!r} err={r.stderr[:500]!r}\n")
+            except Exception:
+                pass
 
         try:
             loop = asyncio.get_event_loop()
@@ -2486,6 +2502,12 @@ class Main(star.Star):
                 logger.info("[Reminder] 语音喊话已触发（webchat 无实时连接）")
         except Exception as e:
             logger.warning(f"[Reminder] 桌面增强通知失败: {e}")
+            try:
+                dbg = os.path.join(self.data_dir, "desktop_alert_debug.log")
+                with open(dbg, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] PY_EXC {e!r}\n")
+            except Exception:
+                pass
 
     async def _send_reminder_notification(self, msg: str):
         """在聊天界面主动推送提醒通知
