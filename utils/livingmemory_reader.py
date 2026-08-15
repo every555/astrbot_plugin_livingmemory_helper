@@ -1255,7 +1255,7 @@ class LivingMemoryReader:
                    created_at, session_id, atom_type
                 FROM memory_atoms
                 WHERE tier = 3 AND status = 'active'
-                ORDER BY importance DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -1272,7 +1272,8 @@ class LivingMemoryReader:
                    created_at, session_id, atom_type
                 FROM memory_atoms
                 WHERE tier = 2 AND status = 'active'
-                ORDER BY importance DESC
+                  AND json_extract(metadata, '$.atom_subtype') = 'session_summary'
+                ORDER BY created_at DESC, id DESC
                 LIMIT ?""",
                 (limit,),
             ).fetchall()
@@ -1391,7 +1392,14 @@ class LivingMemoryReader:
                 current_ids = next_level_ids
 
             conn.close()
-            return {"memory": memory, "chain": chain}
+            # v6.3 修复：前端金字塔溯源弹窗读取顶层 content / source_messages 字段
+            source_messages = [c for c in chain if c.get("tier") == 1]
+            return {
+                "memory": memory,
+                "chain": chain,
+                "content": memory.get("content", ""),
+                "source_messages": source_messages,
+            }
         except Exception as e:
             logger.warning(f"[LMReader] get_memory_trace error: {e}")
             return None
