@@ -8,19 +8,19 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <script src="vue.global.js"></script>
-<script src="echarts.min.js"></script>
 <script>window.__VUE_DEVTOOLS_GLOBAL_HOOK__ = false;</script>
-<script src="graph-2d.js"></script>
+<!-- v5.8perf: graph-2d.js 改为懒加载，见 ensureGraph2D() -->
+<script src="petals.js"></script>
 <style>
 /* ===== Global Reset ===== */
 *{margin:0;padding:0;box-sizing:border-box}
 
 /* ===== Theme Variables ===== */
 :root{
-  --bg-base:#0d0e15; --bg-card:#131420; --bg-card2:#171827; --bg-hover:#1b1c2e; --bg-hover2:#1c1d30;
-  --border:#1f2235; --border2:#23253a; --border3:#282a45; --border4:#2a2d44;
+  --bg-base:#0d0e15; --bg-card:#1b1e2e; --bg-card2:#222536; --bg-hover:#1b1c2e; --bg-hover2:#1c1d30;
+  --border:var(--border); --border2:#23253a; --border3:#282a45; --border4:#2a2d44;
   --text:#e2e4f0; --text-muted:#7e84a3; --text-dim:#5c6080; --text-heading:#fff;
-  --accent:#ff6b9d; --accent-purple:#7c6fca;
+  --accent:#ff6b9d; --accent-purple:#7c6fca; --gold:#d9a05b; --bg-inset:#1e2130;
   --logo-bg1:#161726; --logo-bg2:#11121e;
   --toast-ok-bg:#1a3a2a; --toast-ok-bd:#2d6b4a; --toast-ok-tx:#7cff7c;
   --toast-er-bg:#3a1a1a; --toast-er-bd:#6b2d2d; --toast-er-tx:#ff7c7c;
@@ -31,7 +31,7 @@ body.light-theme{
   --bg-base:#f0f1f5; --bg-card:#ffffff; --bg-card2:#f5f6fa; --bg-hover:#e8eaf0; --bg-hover2:#e0e3eb;
   --border:#d8dae5; --border2:#cdd0dc; --border3:#c5c8d5; --border4:#bfc2d0;
   --text:#2a2d3e; --text-muted:#6b7088; --text-dim:#9298b0; --text-heading:#1a1c2e;
-  --accent:#e8568a; --accent-purple:#6c5fb8;
+  --accent:#e8568a; --accent-purple:#6c5fb8; --gold:#b8863b; --bg-inset:#eef0f5;
   --logo-bg1:#f8f9fc; --logo-bg2:#eef0f5;
   --toast-ok-bg:#d4f0dd; --toast-ok-bd:#5a9a72; --toast-ok-tx:#2d6b3f;
   --toast-er-bg:#f0d4d4; --toast-er-bd:#9a5a5a; --toast-er-tx:#6b2d2d;
@@ -91,88 +91,88 @@ body.light-theme .weekly-bar-track{background-image:linear-gradient(#dde0ea,#dde
 body.light-theme .weekly-bar-pos{background-image:linear-gradient(#5fd35f,#5fd35f) !important}
 body.light-theme .weekly-bar-neu{background-image:linear-gradient(#5b9cf5,#5b9cf5) !important}
 body.light-theme .weekly-bar-neg{background-image:linear-gradient(#ff5a5a,#ff5a5a) !important}
-.stat-card{background:#131420;border-radius:12px;padding:20px 24px;border:1px solid #1f2235;transition:border-color .3s}
-.stat-card:hover{border-color:#ff6b9d}
+.stat-card{background:var(--bg-card);border-radius:12px;padding:20px 24px;border:1px solid var(--border);transition:border-color .3s}
+.stat-card:hover{border-color:var(--accent)}
 .stat-num{font-size:32px;font-weight:700;font-family:'JetBrains Mono','Consolas',monospace}
-.stat-label{font-size:12px;color:#7e84a3;margin-top:4px}
+.stat-label{font-size:12px;color:var(--text-muted);margin-top:4px}
 
 /* ===== Chart Panel ===== */
 .chart-grid{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
 
 /* ===== Panel ===== */
-.page-panel{background:#131420;border-radius:12px;padding:20px 24px;border:1px solid #1f2235;margin-bottom:20px}
-.page-panel h3{font-size:15px;color:#e2e4f0;margin-bottom:14px;font-weight:600}
+.page-panel{background:var(--bg-card);border-radius:12px;padding:20px 24px;border:1px solid var(--border);margin-bottom:20px}
+.page-panel h3{font-size:15px;color:var(--text);margin-bottom:14px;font-weight:600}
 /* ── v2.1 家庭生态页 ── */
 .family-page{max-width:1000px;margin:0 auto}
 .family-stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
-.fam-stat-card{background:#131420;border:1px solid #1f2235;border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:border-color .2s}
+.fam-stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;cursor:pointer;transition:border-color .2s}
 .fam-stat-card:hover{border-color:var(--accent,#8a7cff)}
-.fam-stat-val{font-size:26px;font-weight:700;color:#e2e4f0}
-.fam-stat-lbl{font-size:12px;color:#5c6080;margin-top:4px}
+.fam-stat-val{font-size:26px;font-weight:700;color:var(--text)}
+.fam-stat-lbl{font-size:12px;color:var(--text-dim);margin-top:4px}
 .family-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
 .fam-roles{display:flex;flex-direction:column;gap:10px;max-height:520px;overflow-y:auto}
-.fam-role{background:#161728;border:1px solid #1f2235;border-radius:10px;padding:12px 14px}
+.fam-role{background:var(--bg-inset);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
 .fam-role-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.fam-role-name{font-size:14px;font-weight:600;color:#e2e4f0}
-.fam-role-tool{font-size:11px;color:#8a7cff;background:rgba(138,124,255,.12);padding:2px 8px;border-radius:20px}
-.fam-role-desc{font-size:12px;color:#aab;line-height:1.5}
-.fam-role-coop{margin-top:6px;font-size:11px;color:#5c6080}
-.fam-fb{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #1a1c2c;font-size:12px}
+.fam-role-name{font-size:14px;font-weight:600;color:var(--text)}
+.fam-role-tool{font-size:11px;color:var(--accent-purple);background:rgba(124,111,202,.15);padding:2px 8px;border-radius:20px}
+.fam-role-desc{font-size:12px;color:var(--text-muted);line-height:1.5}
+.fam-role-coop{margin-top:6px;font-size:11px;color:var(--text-dim)}
+.fam-fb{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px}
 .fam-fb-main{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.fam-fb-mod{color:#e2e4f0;font-weight:500}
-.fam-fb-arrow{color:#5c6080}
-.fam-fb-type{color:#8a7cff;font-size:11px;background:rgba(138,124,255,.1);padding:1px 7px;border-radius:20px}
-.fam-fb-time{color:#5c6080;font-size:11px;white-space:nowrap}
+.fam-fb-mod{color:var(--text);font-weight:500}
+.fam-fb-arrow{color:var(--text-dim)}
+.fam-fb-type{color:var(--accent-purple);font-size:11px;background:rgba(124,111,202,.12);padding:1px 7px;border-radius:20px}
+.fam-fb-time{color:var(--text-dim);font-size:11px;white-space:nowrap}
 .fam-meeting-summary{max-height:200px;overflow-y:auto}
 .fam-detail-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
-.fam-detail-card{background:#131420;border:1px solid #1f2235;border-radius:14px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;padding:20px 24px}
+.fam-detail-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;padding:20px 24px}
 .fam-detail-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.fam-detail-title{font-size:15px;font-weight:600;color:#e2e4f0}
-.fam-detail-close{background:none;border:none;color:#5c6080;font-size:20px;cursor:pointer}
+.fam-detail-title{font-size:15px;font-weight:600;color:var(--text)}
+.fam-detail-close{background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer}
 .fam-kv{display:flex;flex-direction:column;gap:6px}
-.fam-kv-item{display:flex;justify-content:space-between;padding:8px 10px;background:#161728;border-radius:8px;font-size:13px}
-.fam-kv-item .k{color:#aab}.fam-kv-item .v{color:#e2e4f0;font-weight:600}
-.fam-meeting-row{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #1a1c2c;font-size:13px}
-.fam-meeting-date{color:#8a7cff;white-space:nowrap}
-.fam-meeting-sum{color:#aab}
+.fam-kv-item{display:flex;justify-content:space-between;padding:8px 10px;background:var(--bg-inset);border-radius:8px;font-size:13px}
+.fam-kv-item .k{color:var(--text-muted)}.fam-kv-item .v{color:var(--text);font-weight:600}
+.fam-meeting-row{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.fam-meeting-date{color:var(--accent-purple);white-space:nowrap}
+.fam-meeting-sum{color:var(--text-muted)}
 
 /* ===== Tag Cloud ===== */
-.tag{display:inline-block;background:#1b1c2e;border:1px solid #282a45;color:#a3a8cc;border-radius:20px;padding:5px 12px;margin:4px;font-size:12px;cursor:pointer;transition:all .25s}
+.tag{display:inline-block;background:var(--bg-hover);border:1px solid #282a45;color:#a3a8cc;border-radius:20px;padding:5px 12px;margin:4px;font-size:12px;cursor:pointer;transition:all .25s}
 .tag:hover{background:#ff6b9d;color:#fff;border-color:#ff6b9d}
 
 /* ===== Memory List ===== */
 .mem-list{display:flex;flex-direction:column;gap:10px}
-.mem-item{background:#171827;padding:14px 18px;border-radius:8px;border:1px solid #23253a;cursor:pointer;transition:all .25s}
+.mem-item{background:var(--bg-card2);padding:14px 18px;border-radius:8px;border:1px solid #23253a;cursor:pointer;transition:all .25s}
 .mem-item:hover{border-color:#ff6b9d;background:#1c1d30;transform:translateX(2px)}
-.mem-time{font-size:11px;color:#5c6080;margin-bottom:4px}
-.mem-content{font-size:13px;color:#e2e4f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mem-time{font-size:11px;color:var(--text-dim);margin-bottom:4px}
+.mem-content{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mem-content.wrap{white-space:normal}
 
 /* ===== Buttons & Inputs ===== */
 .btn{background:#ff6b9d;color:#fff;border:none;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:13px;font-weight:600;transition:all .25s}
 .btn:hover{background:#ff5287;transform:translateY(-1px)}
 .btn.small{padding:6px 14px;font-size:12px}
-.btn.ghost{background:#171827;color:#a3a8cc;border:1px solid #23253a}
-.btn.ghost:hover{background:#1b1c2e;border-color:#ff6b9d;color:#ff6b9d}
+.btn.ghost{background:var(--bg-card2);color:#a3a8cc;border:1px solid #23253a}
+.btn.ghost:hover{background:var(--bg-hover);border-color:#ff6b9d;color:#ff6b9d}
 .btn.purple{background:#7c6fca}
 .btn.purple:hover{background:#6a5db8}
 
 input[type="text"],input[type="password"],input[type="number"],select{
-    background:#171827;border:1px solid #23253a;border-radius:6px;padding:10px 14px;
+    background:var(--bg-card2);border:1px solid #23253a;border-radius:6px;padding:10px 14px;
     color:#fff;font-size:13px;outline:none;transition:border-color .3s;width:100%
 }
 input:focus{border-color:#ff6b9d}
 input[type="checkbox"]{transform:scale(1.3);accent-color:#ff6b9d;cursor:pointer}
 
 /* ===== Settings ===== */
-.setting-item{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #1f2235;gap:16px}
+.setting-item{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--border);gap:16px}
 .setting-item:last-child{border-bottom:none}
 .setting-item label{font-size:13px;color:#a3a8cc;flex:1}
 .setting-item .input-wrap{width:260px;min-width:200px}
 .setting-item input[type=checkbox]{width:20px;height:20px;cursor:pointer;accent-color:#ff6b9d}
 .setting-item input[type=password],
 .setting-item input[type=text],
-.setting-item input[type=number]{width:100%;background:#171827;border:1px solid #2a2d44;border-radius:6px;padding:8px 12px;color:#e2e4f0;font-size:13px;outline:none;transition:border-color .2s}
+.setting-item input[type=number]{width:100%;background:var(--bg-card2);border:1px solid #2a2d44;border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;transition:border-color .2s}
 .setting-item input:focus{border-color:#ff6b9d}
 .btn.ghost{background:transparent;border:1px solid #2a2d44;color:#a3a8cc}
 .btn.ghost:hover{border-color:#ff6b9d;color:#ff6b9d}
@@ -184,7 +184,7 @@ input[type="checkbox"]{transform:scale(1.3);accent-color:#ff6b9d;cursor:pointer}
 .search-box{display:flex;gap:10px;margin-bottom:20px}
 
 /* ===== Error / Empty ===== */
-.empty-state{text-align:center;color:#5c6080;padding:60px 20px;font-size:14px}
+.empty-state{text-align:center;color:var(--text-dim);padding:60px 20px;font-size:14px}
 .empty-state .icon{font-size:48px;margin-bottom:12px;opacity:0.5}
 
 /* ===== Toast ===== */
@@ -206,11 +206,11 @@ input[type="checkbox"]{transform:scale(1.3);accent-color:#ff6b9d;cursor:pointer}
 
 /* ===== Light Theme Inline Override ===== */
 /* --- Panel backgrounds --- */
-body.light-theme [style*="background:#131420"],
-body.light-theme [style*="background: #131420"]{background:#fff !important}
-body.light-theme [style*="background:#171827"],
-body.light-theme [style*="background: #171827"]{background:#f5f6fa !important}
-body.light-theme [style*="background:#1b1c2e"],
+body.light-theme [style*="background:var(--bg-card)"],
+body.light-theme [style*="background: #1b1e2e"]{background:#fff !important}
+body.light-theme [style*="background:var(--bg-card2)"],
+body.light-theme [style*="background: #222536"]{background:#f5f6fa !important}
+body.light-theme [style*="background:var(--bg-hover)"],
 body.light-theme [style*="background: #1b1c2e"]{background:#e8eaf0 !important}
 body.light-theme [style*="background:#151828"],
 body.light-theme [style*="background: #151828"]{background:#eef0f5 !important}
@@ -241,15 +241,15 @@ body.light-theme [style*="background: #3a1a1a"]{background:#f5e0e0 !important}
 body.light-theme [style*="background:rgba(0,0,0,0.5)"]{background:rgba(0,0,0,0.2) !important}
 body.light-theme [style*="background:rgba(0,0,0,0.4)"]{background:rgba(0,0,0,0.15) !important}
 /* --- Text colors --- */
-body.light-theme [style*="color:#e2e4f0"],
+body.light-theme [style*="color:var(--text)"],
 body.light-theme [style*="color: #e2e4f0"]{color:#2a2d3e !important}
 body.light-theme [style*="color:#a3a8cc"],
 body.light-theme [style*="color: #a3a8cc"]{color:#6b7088 !important}
-body.light-theme [style*="color:#7e84a3"],
+body.light-theme [style*="color:var(--text-muted)"],
 body.light-theme [style*="color: #7e84a3"]{color:#7a80a0 !important}
 body.light-theme [style*="color:#a0a4c0"],
 body.light-theme [style*="color: #a0a4c0"]{color:#5a6080 !important}
-body.light-theme [style*="color:#5c6080"],
+body.light-theme [style*="color:var(--text-dim)"],
 body.light-theme [style*="color: #5c6080"]{color:#9098b8 !important}
 body.light-theme [style*="color:#fff;"],
 body.light-theme [style*="color: #fff;"]{color:#1a1c2e !important}
@@ -266,8 +266,8 @@ body.light-theme [style*="color: #ffa502"]{color:#d48a00 !important}
 /* --- Border colors --- */
 body.light-theme [style*="border:1px solid #23253a"],
 body.light-theme [style*="border: 1px solid #23253a"]{border-color:#cdd0dc !important}
-body.light-theme [style*="border:1px solid #1f2235"],
-body.light-theme [style*="border: 1px solid #1f2235"]{border-color:#d8dae5 !important}
+body.light-theme [style*="border:1px solid var(--border)"],
+body.light-theme [style*="border: 1px solid var(--border)"]{border-color:#d8dae5 !important}
 body.light-theme [style*="border:1px solid #2a2e3e"],
 body.light-theme [style*="border: 1px solid #2a2e3e"]{border-color:#c5c8d5 !important}
 body.light-theme [style*="border:1px solid #2a2e4a"],
@@ -384,7 +384,91 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 .kb-lesson-card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto;padding:24px}
 .kb-lesson-card-header{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-size:16px;font-weight:600;color:var(--text-heading)}
 .kb-lesson-meta{display:flex;gap:20px;font-size:12px;color:var(--text-dim)}
+/* ===== 🌸 Sakura Edition（2026-08-19）================================ */
+.sidebar{position:relative}
+.logo{display:flex;align-items:center;justify-content:center;gap:10px;padding:20px 16px}
+.logo-sakura{width:26px;height:26px;color:var(--accent);filter:drop-shadow(0 1px 3px rgba(255,107,157,.3));animation:sakuraSway 8s ease-in-out infinite;flex-shrink:0}
+.logo-text{text-align:left}
+.logo h1{font-family:"LXGW WenKai","Noto Serif SC","Source Han Serif SC","Songti SC",Georgia,serif;font-size:19px;letter-spacing:5px;color:var(--accent)}
+.logo small{font-size:10px;margin-top:2px}
+@supports (-webkit-background-clip:text){
+  .logo h1{background:linear-gradient(120deg,var(--accent) 25%,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+}
+@keyframes sakuraSway{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(8deg)}}
+/* 导航选中：樱粉渐染背景 + 原生粉色左条 */
+.nav-item.active{background:linear-gradient(90deg,rgba(255,107,157,.14),rgba(217,160,91,.05) 72%,transparent);border-left-color:var(--accent);color:var(--accent)}
+/* 大数字与标题：衬线手帐感 */
+.topbar h2,.stat-num,.fam-stat-val,.kb-stat-val{font-family:"LXGW WenKai","Noto Serif SC","Songti SC",Georgia,serif;font-variant-numeric:tabular-nums}
+@supports (-webkit-background-clip:text){
+  .stat-num{background:linear-gradient(135deg,var(--accent),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+}
+/* 花瓣层（petals.js 生成） */
+#sakura-petals{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.petal{position:absolute;top:-14px;width:8px;height:8px;background:radial-gradient(circle at 30% 30%,#f6b8c9,#e884a8);border-radius:60% 40% 55% 45%/55% 60% 40% 45%;opacity:0;animation:petalFall linear infinite;will-change:transform,opacity}
+body.light-theme .petal{background:radial-gradient(circle at 30% 30%,#f3a8bd,#d9688f)}
+@keyframes petalFall{
+  0%{transform:translate3d(0,-14px,0) rotate(0deg);opacity:0}
+  8%{opacity:.5}
+  50%{transform:translate3d(var(--sway,18px),45vh,0) rotate(calc(var(--spin,180deg)*.5))}
+  92%{opacity:.35}
+  100%{transform:translate3d(calc(var(--sway,18px)*-.6),96vh,0) rotate(var(--spin,180deg));opacity:0}
+}
+@media (prefers-reduced-motion:reduce){.petal,.logo-sakura{animation:none}.petal{display:none}}
+/* 滚动条樱色 */
+::-webkit-scrollbar-thumb{background:#3a2f3a;border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:#4d3f4d}
+body.light-theme ::-webkit-scrollbar-thumb{background:#d9b8c4}
+body.light-theme ::-webkit-scrollbar-thumb:hover{background:#c99dae}
 </style>
+
+<style>
+/* ═══ v5.8 Sakura Polish · 粉→金渐变签名 + 动效层 · 2026-08-19 ═══ */
+:root{
+  --grad-sakura: linear-gradient(135deg,#ff6b9d 0%,#ff9e7a 45%,#d9a05b 100%);
+  --grad-sakura-soft: linear-gradient(135deg,rgba(255,107,157,.16),rgba(217,160,91,.12));
+  --sp-ease: cubic-bezier(.22,.7,.3,1);
+}
+/* 1) Logo 渐变字 */
+.logo-text h1{background:var(--grad-sakura);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;font-weight:800;letter-spacing:.5px}
+/* 2) 统计数字渐变字（覆盖内联纯色，保留各自色相倾向） */
+.stat-num{background:var(--grad-sakura);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;font-size:30px}
+/* 3) 入场动效：错峰上浮 */
+.stat-card,.page-panel{animation:sp-in .55s var(--sp-ease) both}
+.stat-card:nth-child(1){animation-delay:.04s}.stat-card:nth-child(2){animation-delay:.10s}
+.stat-card:nth-child(3){animation-delay:.16s}.stat-card:nth-child(4){animation-delay:.22s}
+.stat-card:nth-child(5){animation-delay:.28s}.stat-card:nth-child(6){animation-delay:.34s}
+.page-panel{animation-delay:.18s}
+@keyframes sp-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.stat-card,.page-panel{animation:none}}
+/* 4) hover 微交互 */
+.stat-card,.fam-stat-card{transition:transform .25s var(--sp-ease),border-color .25s,box-shadow .25s}
+.stat-card:hover,.fam-stat-card:hover{transform:translateY(-4px);border-color:rgba(255,107,157,.45);box-shadow:0 10px 28px -14px rgba(255,107,157,.38)}
+.mem-item{transition:transform .22s var(--sp-ease),border-color .22s}
+.mem-item:hover{transform:translateX(5px);border-color:rgba(255,107,157,.4)}
+/* 5) 面板标题：渐变小下划线 */
+.page-panel h3{position:relative;display:inline-block}
+.page-panel h3::after{content:"";position:absolute;left:0;bottom:-7px;width:52px;height:3px;border-radius:2px;background:var(--grad-sakura)}
+/* 6) 导航 active：渐变胶囊 + 微光 */
+.nav-item{transition:background .2s,color .2s,transform .2s var(--sp-ease)}
+.nav-item:hover{transform:translateX(3px)}
+.nav-item.active{background:var(--grad-sakura-soft);border-radius:10px;box-shadow:inset 3px 0 0 #ff6b9d}
+.nav-item.active .nav-text{font-weight:700}
+/* 7) 主按钮渐变 */
+.btn:not(.ghost):not(.small){background:var(--grad-sakura);border:none;color:#fff;font-weight:600;box-shadow:0 6px 18px -8px rgba(255,107,157,.5);transition:transform .2s var(--sp-ease),box-shadow .2s,filter .2s}
+.btn:not(.ghost):not(.small):hover{transform:translateY(-2px);filter:brightness(1.06);box-shadow:0 10px 24px -10px rgba(255,107,157,.6)}
+/* 8) 布局呼吸感 */
+.stats-grid{gap:18px}
+.stat-card{padding:26px 24px 22px}
+/* 9) 细窄渐变滚动条 */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(255,107,157,.5),rgba(217,160,91,.45));border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+/* 10) 浅色主题适配：渐变字保持可读 */
+body.light-theme .stat-num{background:linear-gradient(135deg,#e8568a,#b8863b);-webkit-background-clip:text;background-clip:text}
+body.light-theme .logo-text h1{background:linear-gradient(135deg,#e8568a,#b8863b);-webkit-background-clip:text;background-clip:text}
+body.light-theme .nav-item.active{background:linear-gradient(135deg,rgba(232,86,138,.12),rgba(184,134,59,.10));box-shadow:inset 3px 0 0 #e8568a}
+</style>
+
 </head>
 <body>
 <div id="app">
@@ -395,39 +479,39 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
   <!-- Confirm Dialog (sandbox iframe safe) -->
   <div v-if="showConfirmDialog" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;" @click.self="confirmCancel">
-    <div style="background:#1e1e2e;border:1px solid #444;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-      <div style="color:#e2e4f0;font-size:14px;line-height:1.6;white-space:pre-wrap;margin-bottom:20px;">{{confirmMsg}}</div>
+    <div style="background:var(--bg-card2);border:1px solid var(--border2);border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+      <div style="color:var(--text);font-size:14px;line-height:1.6;white-space:pre-wrap;margin-bottom:20px;">{{confirmMsg}}</div>
       <div style="display:flex;gap:10px;justify-content:flex-end;">
         <button class="btn ghost" @click="confirmCancel" style="padding:8px 20px;">取消</button>
-        <button class="btn" @click="confirmOk" style="padding:8px 20px;background:#4a6cf7;color:#fff;border:none;border-radius:6px;cursor:pointer;">确定</button>
+        <button class="btn" @click="confirmOk" style="padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;">确定</button>
       </div>
     </div>
   </div>
 
   <!-- Prune Log Modal (sandbox iframe safe, replaces alert) -->
   <div v-if="pruneLogVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="pruneLogVisible=false">
-    <div style="background:#1e1e2e;border:1px solid #444;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+    <div style="background:var(--bg-card2);border:1px solid var(--border2);border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h3 style="margin:0;color:#ff6b9d;">📋 Prune 操作日志（{{pruneLogData.length}} 条）</h3>
+        <h3 style="margin:0;color:var(--accent);">📋 Prune 操作日志（{{pruneLogData.length}} 条）</h3>
         <button class="btn small ghost" @click="pruneLogVisible=false">✕</button>
       </div>
-      <div v-for="(entry, i) in pruneLogData" :key="i" style="background:#1b1c2e;border-radius:8px;padding:12px 16px;margin-bottom:10px;">
+      <div v-for="(entry, i) in pruneLogData" :key="i" style="background:var(--bg-hover);border-radius:8px;padding:12px 16px;margin-bottom:10px;">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;">
-          <span style="color:#ff6b9d;font-weight:bold;font-size:13px;">#{{i+1}}</span>
-          <span style="background:#2c3e50;padding:2px 8px;border-radius:4px;font-size:12px;color:#7cb8ff;">重要度: {{entry.importance?.toFixed(2) || '?'}}</span>
+          <span style="color:var(--accent);font-weight:bold;font-size:13px;">#{{i+1}}</span>
+          <span style="background:var(--bg-hover2);padding:2px 8px;border-radius:4px;font-size:12px;color:#6ea8e8;">重要度: {{entry.importance?.toFixed(2) || '?'}}</span>
         </div>
-        <div style="color:#e2e4f0;font-size:13px;margin-bottom:4px;white-space:pre-wrap;">{{entry.preview || '(无预览)'}}</div>
-        <div style="font-size:12px;color:#5c6080;">原因: {{entry.reason || '?'}} | 时间: {{entry.time || '?'}}</div>
+        <div style="color:var(--text);font-size:13px;margin-bottom:4px;white-space:pre-wrap;">{{entry.preview || '(无预览)'}}</div>
+        <div style="font-size:12px;color:var(--text-dim);">原因: {{entry.reason || '?'}} | 时间: {{entry.time || '?'}}</div>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:16px;">
-        <button class="btn" @click="pruneLogVisible=false" style="padding:8px 20px;background:#4a6cf7;color:#fff;border:none;border-radius:6px;cursor:pointer;">关闭</button>
+        <button class="btn" @click="pruneLogVisible=false" style="padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;">关闭</button>
       </div>
     </div>
   </div>
 
   <!-- Sidebar -->
   <div class="sidebar">
-    <div class="logo"><h1>🧠 记忆</h1><small>v5.5 管理中心</small></div>
+    <div class="logo"><svg class="logo-sakura" viewBox="0 0 32 32" aria-hidden="true"><g transform="translate(16 16)"><ellipse rx="3" ry="6.5" cy="-7.2" fill="currentColor"/><ellipse rx="3" ry="6.5" cy="-7.2" fill="currentColor" transform="rotate(72)"/><ellipse rx="3" ry="6.5" cy="-7.2" fill="currentColor" transform="rotate(144)"/><ellipse rx="3" ry="6.5" cy="-7.2" fill="currentColor" transform="rotate(216)"/><ellipse rx="3" ry="6.5" cy="-7.2" fill="currentColor" transform="rotate(288)"/><circle r="2.1" fill="var(--bg-card, #1b1e2e)"/></g></svg><div class="logo-text"><h1>记忆</h1><small>v5.5 管理中心 · Sakura</small></div></div>
     <nav class="nav-menu">
       <div v-for="it in navItems" :key="it.id" class="nav-item" :class="{active:route===it.id}" @click="go(it.id)">
         <span class="nav-icon">{{it.icon}}</span>
@@ -447,7 +531,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
       <!-- P0: 3秒心跳梦境引擎状态横幅 -->
       <div v-if="sysInfo.dream_stage && sysInfo.dream_stage !== 'idle'" class="dreaming-banner">
         <div class="dreaming-dot"></div>
-        <span style="font-size:13px;color:#ff6b9d;font-weight:500;">小雪做梦清洗中...</span>
+        <span style="font-size:13px;color:var(--accent);font-weight:500;">小雪做梦清洗中...</span>
         <span class="dream-stage-tag">{{sysInfo.dream_stage}}</span>
       </div>
     </div>
@@ -456,12 +540,12 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
       <!-- ==================== DASHBOARD ==================== -->
       <div v-show="route==='dashboard'">
         <!-- 梦境唤醒面板 -->
-        <div v-if="sysInfo.dream_stage === 'idle'" class="page-panel" style="background:#141929;">
+        <div v-if="sysInfo.dream_stage === 'idle'" class="page-panel" style="background:var(--bg-card2);">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
             <div>
               <h3>🌙 梦境引擎 v4.1</h3>
-              <p style="font-size:12px;color:#5c6080;margin-top:4px;">空闲状态。点击按钮手动唤醒记忆清洗与归并。</p>
-              <p style="font-size:11px;color:#3c4060;margin-top:4px;">
+              <p style="font-size:12px;color:var(--text-dim);margin-top:4px;">空闲状态。点击按钮手动唤醒记忆清洗与归并。</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:4px;">
                 🛡️ 安全保底：白名单≥{{sysInfo.importance_whitelist||0.8}} | 上限{{Math.round((sysInfo.max_prune_ratio||0.05)*100)}}% |
                 备份：{{sysInfo.backup_exists ? '✅' : '❌'}}
                 <span v-if="sysInfo.last_backup_time">| 上次备份：{{sysInfo.last_backup_time.slice(11,19)}}</span>
@@ -477,7 +561,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- 统计卡片 -->
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-num" style="color:#ff6b9d">{{stats.total}}</div><div class="stat-label">📦 累计记忆</div></div>
+          <div class="stat-card"><div class="stat-num" style="color:var(--accent)">{{stats.total}}</div><div class="stat-label">📦 累计记忆</div></div>
           <div class="stat-card"><div class="stat-num" style="color:#7cb8ff">{{stats.today}}</div><div class="stat-label">📝 今日新增</div></div>
           <div class="stat-card"><div class="stat-num" style="color:#7cff7c">{{stats.lessons}}</div><div class="stat-label">📖 学习教训</div></div>
           <div class="stat-card"><div class="stat-num" style="color:#a3a8cc">{{sysInfo.db_size_mb || 0}}MB</div><div class="stat-label">💾 数据库大小</div></div>
@@ -510,12 +594,12 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <button class="btn small ghost" @click="go('reminders')">查看全部 →</button>
           </div>
           <div style="margin-top:8px;">
-            <div v-for="r in overdueReminders.slice(0,3)" :key="'od'+r.id" style="padding:8px 12px;margin:4px 0;background:#1a1225;border-radius:6px;border:1px solid #3a1525;font-size:13px;display:flex;justify-content:space-between;">
+            <div v-for="r in overdueReminders.slice(0,3)" :key="'od'+r.id" style="padding:8px 12px;margin:4px 0;background:var(--bg-card2);border-radius:6px;border:1px solid #3a1525;font-size:13px;display:flex;justify-content:space-between;">
               <span style="color:#ff6b6b;">🔴 {{r.content}}</span>
               <span style="color:#ff6b6b;font-size:11px;">{{r.target_time}}</span>
             </div>
-            <div v-for="r in upcomingReminders.slice(0,3)" :key="'up'+r.id" style="padding:8px 12px;margin:4px 0;background:#1a1e2e;border-radius:6px;border:1px solid #2a2e3e;font-size:13px;display:flex;justify-content:space-between;">
-              <span style="color:#e2e4f0;">🟡 {{r.content}}</span>
+            <div v-for="r in upcomingReminders.slice(0,3)" :key="'up'+r.id" style="padding:8px 12px;margin:4px 0;background:var(--bg-hover2);border-radius:6px;border:1px solid #2a2e3e;font-size:13px;display:flex;justify-content:space-between;">
+              <span style="color:var(--text);">🟡 {{r.content}}</span>
               <span style="color:#ffa502;font-size:11px;">{{r.parsed_time || r.target_time}}</span>
             </div>
           </div>
@@ -540,7 +624,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             </div>
           </div>
           <div class="page-panel" style="margin-bottom:0;">
-            <h3>🔗 智能归并 <span v-if="similarPairs.length" style="font-size:11px;color:#ff6b9d;">({{similarPairs.length}}对相似)</span></h3>
+            <h3>🔗 智能归并 <span v-if="similarPairs.length" style="font-size:11px;color:var(--accent);">({{similarPairs.length}}对相似)</span></h3>
             <div style="max-height:260px;overflow-y:auto;">
               <div v-for="(p, i) in similarPairs.slice(0, 8)" :key="i" style="padding:8px;border-bottom:1px solid #1a1e2e;font-size:12px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
@@ -550,14 +634,14 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
                   </button>
                 </div>
                 <div style="color:#7cb8ff;margin-bottom:2px;">📝 A: {{p.content_a}}</div>
-                <div style="color:#ff6b9d;margin-bottom:2px;">📝 B: {{p.content_b}}</div>
-                <div style="color:#5c6080;font-size:10px;">
+                <div style="color:var(--accent);margin-bottom:2px;">📝 B: {{p.content_b}}</div>
+                <div style="color:var(--text-dim);font-size:10px;">
                   <span v-if="p.tags_a && p.tags_a.length">🏷 {{p.tags_a.join(', ')}}</span>
                   <span v-if="p.time_a"> · {{p.time_a}}</span>
                 </div>
               </div>
-              <div v-if="!similarPairs.length && !loadingSimilar" style="color:#5c6080;font-size:13px;padding:12px;">暂无相似记忆</div>
-              <div v-if="loadingSimilar" style="color:#ff6b9d;font-size:12px;padding:12px;text-align:center;">🔍 扫描相似记忆中...</div>
+              <div v-if="!similarPairs.length && !loadingSimilar" style="color:var(--text-dim);font-size:13px;padding:12px;">暂无相似记忆</div>
+              <div v-if="loadingSimilar" style="color:var(--accent);font-size:12px;padding:12px;text-align:center;">🔍 扫描相似记忆中...</div>
             </div>
             <div v-if="similarPairs.length" style="padding:6px 8px;text-align:center;">
               <button class="btn small" @click="loadSimilarPairs">🔄 重新扫描</button>
@@ -567,7 +651,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- v5.8: 情感事件时间线 -->
         <div class="page-panel" v-if="sentimentEvents.length">
-          <h3>💥 情感高光时刻 <span style="font-size:11px;color:#5c6080;">(近14天 {{sentimentEvents.length}} 条)</span></h3>
+          <h3>💥 情感高光时刻 <span style="font-size:11px;color:var(--text-dim);">(近14天 {{sentimentEvents.length}} 条)</span></h3>
           <div style="max-height:280px;overflow-y:auto;">
             <div v-for="(ev, i) in sentimentEvents" :key="i"
                  style="display:flex;gap:10px;padding:8px 4px;border-bottom:1px solid #1a1e2e;cursor:pointer;"
@@ -578,7 +662,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
                 </div>
               </div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:11px;color:#5c6080;">{{ev.time}} · 强度{{ev.score}} · {{ev.matched.length}}个情感词</div>
+                <div style="font-size:11px;color:var(--text-dim);">{{ev.time}} · 强度{{ev.score}} · {{ev.matched.length}}个情感词</div>
                 <div style="font-size:12px;color:#c0c8e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ev.preview}}</div>
               </div>
             </div>
@@ -590,9 +674,9 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <h3>🏷️ 热门标签</h3>
           <div>
             <span v-for="t in tags" :key="t.name" class="tag" @click="searchQ=t.name;go('search')">
-              # {{t.name}} <span style="color:#5c6080;font-size:10px;">({{t.count}})</span>
+              # {{t.name}} <span style="color:var(--text-dim);font-size:10px;">({{t.count}})</span>
             </span>
-            <span v-if="!tags.length" style="color:#5c6080;font-size:13px;">暂无标签</span>
+            <span v-if="!tags.length" style="color:var(--text-dim);font-size:13px;">暂无标签</span>
           </div>
         </div>
 
@@ -617,7 +701,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
               <button class="btn small" :class="{purple:reportTab==='weekly'}" @click="loadReport('weekly')">周报</button>
             </div>
           </div>
-          <div v-if="loadingReport" style="text-align:center;padding:20px;color:#ff6b9d;">📊 生成报告中...</div>
+          <div v-if="loadingReport" style="text-align:center;padding:20px;color:var(--accent);">📊 生成报告中...</div>
           <div v-if="!loadingReport && dailyReport && reportTab==='daily'" style="margin-top:8px;">
             <!-- 每日报告卡片 -->
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">
@@ -676,7 +760,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
               <span v-for="t in weeklyReport.top_tags" :key="t.tag" :style="{display:'inline-block', padding:'2px 8px', margin:'2px', borderRadius:'10px', fontSize:'11px', background: isLight ? '#eef0f6' : '#1a1e2e', color:'#c4b5fd', border:'1px solid ' + (isLight ? '#d0d4e4' : '#2a2e4e')}">#{{t.tag}} <span :style="{color: isLight ? '#9098b8' : '#5c6080'}">({{t.count}})</span></span>
             </div>
           </div>
-          <div v-if="!loadingReport && !dailyReport && !weeklyReport" style="color:#5c6080;font-size:13px;text-align:center;padding:16px;">点击上方按钮生成报告～</div>
+          <div v-if="!loadingReport && !dailyReport && !weeklyReport" style="color:var(--text-dim);font-size:13px;text-align:center;padding:16px;">点击上方按钮生成报告～</div>
         </div>
       </div>
 
@@ -734,8 +818,8 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div class="mem-list" v-if="lessons.length">
             <div v-for="l in lessons" :key="l.id" class="mem-item" style="cursor:default;">
               <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
-                <span style="color:#ff6b9d;font-weight:600;">📍 {{l.scene || '未命名场景'}}</span>
-                <span style="color:#5c6080;font-size:12px;">{{l.created_at || l.learned_at}}</span>
+                <span style="color:var(--accent);font-weight:600;">📍 {{l.scene || '未命名场景'}}</span>
+                <span style="color:var(--text-dim);font-size:12px;">{{l.created_at || l.learned_at}}</span>
               </div>
               <div style="margin-top:8px;font-size:13px;color:#a3a8cc;">💡 {{l.solution || l.correction || '(无解决方案)'}}</div>
             </div>
@@ -754,14 +838,14 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div class="mem-list" v-if="dreamHistory.length">
             <div v-for="h in dreamHistory" :key="h.timestamp" class="mem-item" style="cursor:default;">
               <div class="mem-time">🕐 {{h.timestamp}}</div>
-              <div class="mem-content" style="white-space:normal;color:#ff6b9d;">{{h.summary}}</div>
-              <div v-if="h.count > 0" style="font-size:12px;color:#5c6080;">处理 {{h.count}} 条记忆</div>
+              <div class="mem-content" style="white-space:normal;color:var(--accent);">{{h.summary}}</div>
+              <div v-if="h.count > 0" style="font-size:12px;color:var(--text-dim);">处理 {{h.count}} 条记忆</div>
             </div>
           </div>
           <div v-else class="empty-state">
             <div class="icon">🌙</div>
             <p>暂无梦境清洗记录</p>
-            <p style="font-size:12px;color:#5c6080;">引擎就绪中，等待自动或手动唤醒～</p>
+            <p style="font-size:12px;color:var(--text-dim);">引擎就绪中，等待自动或手动唤醒～</p>
           </div>
         </div>
       </div>
@@ -774,7 +858,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <input v-model="graphSearch" placeholder="节点名称..." style="width:200px;">
             <button class="btn small" @click="graphFocusNode">聚焦</button>
             <button class="btn small ghost" @click="graphResetView">复位</button>
-            <select v-model="graphEdgeFilter" @change="loadGraph" style="background:#1a1e2e;color:#a3a8cc;border:1px solid #2a2e3e;border-radius:4px;padding:4px 8px;font-size:12px;">
+            <select v-model="graphEdgeFilter" @change="loadGraph" style="background:var(--bg-hover2);color:#a3a8cc;border:1px solid #2a2e3e;border-radius:4px;padding:4px 8px;font-size:12px;">
               <option value="">全部关系</option>
               <option v-for="t in edgeTypes" :key="t" :value="t">{{t}}</option>
             </select>
@@ -786,7 +870,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div v-if="showNodeForm" style="background:#0d1018;border:1px solid #2a2e3e;border-radius:8px;padding:12px;margin-bottom:10px;">
             <h4 style="margin:0 0 8px;color:#a3a8cc;">创建新实体</h4>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-              <select v-model="newNode.type" style="background:#1a1e2e;color:#a3a8cc;border:1px solid #2a2e3e;border-radius:4px;padding:4px 8px;font-size:12px;">
+              <select v-model="newNode.type" style="background:var(--bg-hover2);color:#a3a8cc;border:1px solid #2a2e3e;border-radius:4px;padding:4px 8px;font-size:12px;">
                 <option v-for="t in nodeTypes" :key="t" :value="t">{{t}}</option>
               </select>
               <input v-model="newNode.label" placeholder="实体名称..." style="width:180px;">
@@ -796,7 +880,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           </div>
 
           <!-- 力导向参数 -->
-          <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:11px;color:#5c6080;">
+          <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);">
             <label>排斥力: <input type="range" min="500" max="5000" step="100" v-model.number="graphParams.repulsion" @change="applyGraphParams" style="width:100px;vertical-align:middle;"></label>
             <label>连线距离: <input type="range" min="40" max="300" step="10" v-model.number="graphParams.linkDistance" @change="applyGraphParams" style="width:100px;vertical-align:middle;"></label>
             <label>引力: <input type="range" min="1" max="50" step="1" v-model.number="graphParams.gravity" @change="applyGraphParams" style="width:100px;vertical-align:middle;"></label>
@@ -811,19 +895,19 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
                 <h4 style="margin:0;color:#a3a8cc;">节点详情</h4>
                 <button class="btn small ghost" style="padding:2px 6px;font-size:10px;" @click="selectedNode=null">✕</button>
               </div>
-              <div style="color:#5c6080;margin-bottom:4px;">ID: <span style="color:#a3a8cc;">{{selectedNode.id}}</span></div>
-              <div style="color:#5c6080;margin-bottom:4px;">类型: <span style="color:#7cb8ff;">{{selectedNode.node_type}}</span></div>
-              <div style="color:#5c6080;margin-bottom:4px;">标签: <span style="color:#ff6b9d;">{{selectedNode.label}}</span></div>
-              <div style="color:#5c6080;margin-bottom:4px;">权重: <span style="color:#a3a8cc;">{{selectedNode.weight || 0}}</span></div>
-              <div style="color:#5c6080;margin-bottom:8px;">记忆数: <span style="color:#a3a8cc;">{{selectedNode.memory_count || 0}}</span></div>
+              <div style="color:var(--text-dim);margin-bottom:4px;">ID: <span style="color:#a3a8cc;">{{selectedNode.id}}</span></div>
+              <div style="color:var(--text-dim);margin-bottom:4px;">类型: <span style="color:#7cb8ff;">{{selectedNode.node_type}}</span></div>
+              <div style="color:var(--text-dim);margin-bottom:4px;">标签: <span style="color:var(--accent);">{{selectedNode.label}}</span></div>
+              <div style="color:var(--text-dim);margin-bottom:4px;">权重: <span style="color:#a3a8cc;">{{selectedNode.weight || 0}}</span></div>
+              <div style="color:var(--text-dim);margin-bottom:8px;">记忆数: <span style="color:#a3a8cc;">{{selectedNode.memory_count || 0}}</span></div>
               <div v-if="selectedNode.neighbors && selectedNode.neighbors.length" style="margin-top:8px;">
-                <div style="color:#5c6080;margin-bottom:4px;">关联节点 ({{selectedNode.neighbors.length}}):</div>
+                <div style="color:var(--text-dim);margin-bottom:4px;">关联节点 ({{selectedNode.neighbors.length}}):</div>
                 <div v-for="n in selectedNode.neighbors" :key="n.id" style="color:#7cff7c;font-size:11px;margin:2px 0;cursor:pointer;" @click="graphSearch=n.label;graphFocusNode()">
-                  {{n.label}} <span style="color:#3c4060;">({{n.node_type}})</span>
+                  {{n.label}} <span style="color:var(--text-dim);">({{n.node_type}})</span>
                 </div>
               </div>
               <div v-if="selectedNode.edges && selectedNode.edges.length" style="margin-top:8px;">
-                <div style="color:#5c6080;margin-bottom:4px;">关系边 ({{selectedNode.edges.length}}):</div>
+                <div style="color:var(--text-dim);margin-bottom:4px;">关系边 ({{selectedNode.edges.length}}):</div>
                 <div v-for="e in selectedNode.edges" :key="e.id" style="color:#8b949e;font-size:10px;margin:2px 0;">
                   {{e.relation_type || 'related'}} → {{e.source_node_id == selectedNode.id ? e.target_node_id : e.source_node_id}}
                 </div>
@@ -844,19 +928,19 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             </div>
           </div>
           <!-- 新建提醒表单 -->
-          <div v-if="showAddReminder" style="margin-top:12px;padding:12px;background:#151828;border-radius:8px;border:1px solid #2a2e4a;">
+          <div v-if="showAddReminder" style="margin-top:12px;padding:12px;background:var(--bg-inset);border-radius:8px;border:1px solid #2a2e4a;">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
                 <label style="font-size:12px;color:#7e84a3;display:block;margin-bottom:4px;">提醒内容</label>
-                <input v-model="newReminder.content" placeholder="例: 记得给橘子发消息" style="width:100%;padding:8px;background:#1a1e2e;border:1px solid #2a2e4a;border-radius:6px;color:#e2e4f0;">
+                <input v-model="newReminder.content" placeholder="例: 记得给橘子发消息" style="width:100%;padding:8px;background:var(--bg-hover2);border:1px solid #2a2e4a;border-radius:6px;color:var(--text);">
               </div>
               <div>
                 <label style="font-size:12px;color:#7e84a3;display:block;margin-bottom:4px;">提醒时间（支持自然语言）</label>
-                <input v-model="newReminder.target_time" placeholder="例: 明天下午3点 / 2026-07-20T10:00:00" style="width:100%;padding:8px;background:#1a1e2e;border:1px solid #2a2e4a;border-radius:6px;color:#e2e4f0;">
+                <input v-model="newReminder.target_time" placeholder="例: 明天下午3点 / 2026-07-20T10:00:00" style="width:100%;padding:8px;background:var(--bg-hover2);border:1px solid #2a2e4a;border-radius:6px;color:var(--text);">
               </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-              <select v-model="newReminder.priority" style="padding:6px 10px;background:#1a1e2e;color:#a3a8cc;border:1px solid #2a2e3e;border-radius:4px;font-size:12px;">
+              <select v-model="newReminder.priority" style="padding:6px 10px;background:var(--bg-hover2);color:#a3a8cc;border:1px solid #2a2e3e;border-radius:4px;font-size:12px;">
                 <option value="low">低优先级</option>
                 <option value="normal">普通</option>
                 <option value="high">高优先级</option>
@@ -869,9 +953,9 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- 🔴 逾期提醒 -->
         <div v-if="overdueReminders.length" class="page-panel" style="border-left:3px solid #ff4757;">
           <h3 style="color:#ff4757;">🔴 逾期提醒 ({{overdueReminders.length}})</h3>
-          <div v-for="r in overdueReminders" :key="r.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;background:#1a1225;border-radius:8px;border:1px solid #3a1525;">
+          <div v-for="r in overdueReminders" :key="r.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;background:var(--bg-card2);border-radius:8px;border:1px solid #3a1525;">
             <div>
-              <div style="font-size:13px;color:#e2e4f0;">{{r.content}}</div>
+              <div style="font-size:13px;color:var(--text);">{{r.content}}</div>
               <div style="font-size:11px;color:#ff6b6b;margin-top:2px;">⏰ {{r.target_time}}</div>
             </div>
             <div style="display:flex;gap:6px;">
@@ -884,9 +968,9 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- 🟡 即将到期 -->
         <div v-if="upcomingReminders.length" class="page-panel" style="border-left:3px solid #ffa502;">
           <h3 style="color:#ffa502;">🟡 即将到期 ({{upcomingReminders.length}})</h3>
-          <div v-for="r in upcomingReminders" :key="r.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;background:#1a1e2e;border-radius:8px;border:1px solid #2a2e3e;">
+          <div v-for="r in upcomingReminders" :key="r.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;background:var(--bg-hover2);border-radius:8px;border:1px solid #2a2e3e;">
             <div>
-              <div style="font-size:13px;color:#e2e4f0;">{{r.content}}</div>
+              <div style="font-size:13px;color:var(--text);">{{r.content}}</div>
               <div style="font-size:11px;color:#ffa502;margin-top:2px;">⏰ {{r.parsed_time || r.target_time}}</div>
               <span v-if="r.priority==='high'" style="font-size:10px;background:#ff4757;color:#fff;padding:1px 6px;border-radius:3px;margin-left:6px;">高</span>
             </div>
@@ -900,17 +984,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- 📋 所有提醒 -->
         <div class="page-panel">
           <h3>📋 所有提醒 ({{reminders.length}})</h3>
-          <div v-if="!reminders.length" style="color:#5c6080;font-size:13px;padding:20px 0;text-align:center;">
+          <div v-if="!reminders.length" style="color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;">
             暂无提醒，点击上方按钮扫描记忆自动创建～
           </div>
-          <div v-for="r in reminders" :key="r.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;background:#151828;border-radius:8px;border:1px solid #1f2235;">
+          <div v-for="r in reminders" :key="r.id" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;background:var(--bg-inset);border-radius:8px;border:1px solid #1f2235;">
             <div>
-              <span v-if="r.done" style="color:#5c6080;text-decoration:line-through;font-size:13px;">{{r.content}}</span>
-              <span v-else style="font-size:13px;color:#e2e4f0;">{{r.content}}</span>
-              <div style="font-size:11px;color:#5c6080;margin-top:2px;">
+              <span v-if="r.done" style="color:var(--text-dim);text-decoration:line-through;font-size:13px;">{{r.content}}</span>
+              <span v-else style="font-size:13px;color:var(--text);">{{r.content}}</span>
+              <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">
                 ⏰ {{r.target_time}} | 来源: {{r.source || 'manual'}}
                 <span v-if="r.fired" style="color:#ffa502;margin-left:6px;">已触发</span>
-                <span v-if="r.done" style="color:#5c6080;margin-left:6px;">已完成</span>
+                <span v-if="r.done" style="color:var(--text-dim);margin-left:6px;">已完成</span>
               </div>
             </div>
             <div style="display:flex;gap:6px;">
@@ -928,7 +1012,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <h3>🔺 三层记忆金字塔</h3>
             <div style="display:flex;gap:8px;align-items:center;">
               <span style="color:#7e84a3;font-size:12px;">每层最多</span>
-              <select v-model="pyramidLimit" @change="loadPyramidData" style="width:80px;background:#1b1c2e;border:1px solid #23253a;color:#e2e4f0;border-radius:4px;padding:4px 8px;font-size:12px;">
+              <select v-model="pyramidLimit" @change="loadPyramidData" style="width:80px;background:#1b1c2e;border:1px solid #23253a;color:var(--text);border-radius:4px;padding:4px 8px;font-size:12px;">
                 <option value="20">20</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
@@ -949,7 +1033,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap;">
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="width:12px;height:12px;background:#ff6b9d;border-radius:2px;"></span>
-              <span style="color:#ff6b9d;font-size:13px;">L3 跨会话合成</span>
+              <span style="color:var(--accent);font-size:13px;">L3 跨会话合成</span>
               <span style="color:#7e84a3;font-size:11px;">· 最高层 · 重要性最高</span>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
@@ -967,23 +1051,23 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <div class="page-panel" id="pyramid-L3" style="margin-bottom:16px;border-left:4px solid #ff6b9d;">
           <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;" @click="pyramidCollapsed.L3 = !pyramidCollapsed.L3">
-            <h3 style="color:#ff6b9d;">🔴 L3 · 跨会话合成记忆 ({{pyramidData.L3.length}})</h3>
+            <h3 style="color:var(--accent);">🔴 L3 · 跨会话合成记忆 ({{pyramidData.L3.length}})</h3>
             <span style="font-size:16px;color:#7e84a3;transition:transform .2s;" :style="{ transform: pyramidCollapsed.L3 ? 'rotate(-90deg)' : 'rotate(0)' }">▾</span>
           </div>
           <div v-show="!pyramidCollapsed.L3">
             <div v-if="pyramidData.L3.length === 0" style="color:#7e84a3;font-size:13px;padding:20px 0;text-align:center;">暂无 L3 级合成记忆</div>
             <div v-for="m in pyramidData.L3" :key="'l3-'+m.id"
-              style="background:#1b1c2e;border-radius:8px;padding:12px 16px;margin-top:8px;cursor:pointer;"
+              style="background:var(--bg-hover);border-radius:8px;padding:12px 16px;margin-top:8px;cursor:pointer;"
               @click="showPyramidTrace(m.id)">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                <span style="color:#e2e4f0;font-size:13px;">{{m.content || '(无内容)'}}</span>
+                <span style="color:var(--text);font-size:13px;">{{m.content || '(无内容)'}}</span>
                 <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
                   <span style="font-size:11px;color:#7e84a3;">source_ids: {{(m.source_ids || []).length}}</span>
-                  <span style="font-size:11px;padding:2px 6px;background:#ff6b9d20;color:#ff6b9d;border-radius:4px;">{{m.category || 'synthesis'}}</span>
+                  <span style="font-size:11px;padding:2px 6px;background:#ff6b9d20;color:var(--accent);border-radius:4px;">{{m.category || 'synthesis'}}</span>
                   <span v-if="m.importance" style="font-size:11px;color:#7e84a3;">重要度 {{(m.importance*100).toFixed(0)}}%</span>
                 </div>
               </div>
-              <div style="font-size:11px;color:#5c6080;display:flex;gap:12px;">
+              <div style="font-size:11px;color:var(--text-dim);display:flex;gap:12px;">
                 <span>ID: {{m.id}}</span>
                 <span v-if="m.created_at">{{m.created_at}}</span>
               </div>
@@ -999,17 +1083,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div v-show="!pyramidCollapsed.L2">
             <div v-if="pyramidData.L2.length === 0" style="color:#7e84a3;font-size:13px;padding:20px 0;text-align:center;">暂无 L2 级会话摘要</div>
             <div v-for="m in pyramidData.L2" :key="'l2-'+m.id"
-              style="background:#1b1c2e;border-radius:8px;padding:12px 16px;margin-top:8px;cursor:pointer;"
+              style="background:var(--bg-hover);border-radius:8px;padding:12px 16px;margin-top:8px;cursor:pointer;"
               @click="showPyramidTrace(m.id)">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                <span style="color:#e2e4f0;font-size:13px;">{{m.content || '(无内容)'}}</span>
+                <span style="color:var(--text);font-size:13px;">{{m.content || '(无内容)'}}</span>
                 <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
                   <span v-if="m.topics && m.topics.length" style="font-size:11px;color:#7c6fca;">🏷 {{m.topics.slice(0,3).join(', ')}}</span>
                   <span v-if="m.emotion" style="font-size:11px;color:#7e84a3;">{{m.emotion}}</span>
                   <span v-if="m.importance" style="font-size:11px;color:#7e84a3;">重要度 {{(m.importance*100).toFixed(0)}}%</span>
                 </div>
               </div>
-              <div style="font-size:11px;color:#5c6080;display:flex;gap:12px;">
+              <div style="font-size:11px;color:var(--text-dim);display:flex;gap:12px;">
                 <span>ID: {{m.id}}</span>
                 <span v-if="m.created_at">{{m.created_at}}</span>
               </div>
@@ -1025,17 +1109,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div v-show="!pyramidCollapsed.L1">
             <div v-if="pyramidData.L1.length === 0" style="color:#7e84a3;font-size:13px;padding:20px 0;text-align:center;">暂无 L1 级消息记录</div>
             <div v-for="m in pyramidData.L1" :key="'l1-'+m.id"
-              style="background:#1b1c2e;border-radius:8px;padding:12px 16px;margin-top:8px;">
+              style="background:var(--bg-hover);border-radius:8px;padding:12px 16px;margin-top:8px;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                <span style="color:#e2e4f0;font-size:13px;">{{m.content || '(无内容)'}}</span>
+                <span style="color:var(--text);font-size:13px;">{{m.content || '(无内容)'}}</span>
                 <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
                   <span style="font-size:11px;padding:2px 6px;background:#7cb8ff15;color:#7cb8ff;border-radius:4px;">{{m.role || 'unknown'}}</span>
                 </div>
               </div>
-              <div style="font-size:11px;color:#5c6080;display:flex;gap:12px;">
+              <div style="font-size:11px;color:var(--text-dim);display:flex;gap:12px;">
                 <span>ID: {{m.id}}</span>
                 <span v-if="m.timestamp">{{m.timestamp}}</span>
-                <span v-if="m.session_id" style="color:#3c4060;">session: {{m.session_id}}</span>
+                <span v-if="m.session_id" style="color:var(--text-dim);">session: {{m.session_id}}</span>
               </div>
             </div>
           </div>
@@ -1043,9 +1127,9 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
       </div>
 
       <div v-if="pyramidTraceVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="pyramidTraceVisible=false">
-        <div style="background:#131420;border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+        <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="margin:0;color:#e2e4f0;">🔗 溯源链 — 记忆 #{{pyramidTraceMemoryId}}</h3>
+            <h3 style="margin:0;color:var(--text);">🔗 溯源链 — 记忆 #{{pyramidTraceMemoryId}}</h3>
             <button class="btn small" @click="pyramidTraceVisible=false">✕</button>
           </div>
           <div v-if="pyramidTraceLoading" style="text-align:center;padding:20px;color:#7e84a3;">加载中...</div>
@@ -1054,22 +1138,22 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <div v-else>
               <div style="margin-bottom:12px;">
                 <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">原始记忆</div>
-                <div style="color:#e2e4f0;background:#1b1c2e;padding:8px 12px;border-radius:6px;font-size:13px;">{{pyramidTrace.content || '(无内容)'}}</div>
+                <div style="color:var(--text);background:#1b1c2e;padding:8px 12px;border-radius:6px;font-size:13px;">{{pyramidTrace.content || '(无内容)'}}</div>
               </div>
               <div v-if="pyramidTrace.chain && pyramidTrace.chain.length" style="margin-bottom:12px;">
                 <div style="color:#7e84a3;font-size:12px;margin-bottom:6px;">溯源链 ({{pyramidTrace.chain.length}} 步)</div>
                 <div v-for="(step, i) in pyramidTrace.chain" :key="i"
                   style="background:#1b1c2e;padding:8px 12px;border-radius:6px;margin-bottom:4px;">
                   <div style="font-size:11px;color:#7c6fca;margin-bottom:2px;">{{step.tier || '?'}} → 记忆 #{{step.id}}</div>
-                  <div style="color:#e2e4f0;font-size:13px;">{{step.content || '(空)'}}</div>
+                  <div style="color:var(--text);font-size:13px;">{{step.content || '(空)'}}</div>
                 </div>
               </div>
               <div v-if="pyramidTrace.source_messages && pyramidTrace.source_messages.length" style="margin-bottom:12px;">
                 <div style="color:#7e84a3;font-size:12px;margin-bottom:6px;">原始消息源 ({{pyramidTrace.source_messages.length}} 条)</div>
                 <div v-for="(msg, i) in pyramidTrace.source_messages" :key="i"
                   style="background:#1b1c2e;padding:8px 12px;border-radius:6px;margin-bottom:4px;">
-                  <div style="color:#e2e4f0;font-size:13px;">{{msg.content || '(空)'}}</div>
-                  <div style="font-size:11px;color:#5c6080;margin-top:2px;">ID: {{msg.id}}</div>
+                  <div style="color:var(--text);font-size:13px;">{{msg.content || '(空)'}}</div>
+                  <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">ID: {{msg.id}}</div>
                 </div>
               </div>
             </div>
@@ -1082,25 +1166,25 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- Embedding 配置组 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🔮 Embedding 向量配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">用于冲突检测和语义搜索的向量生成服务</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">用于冲突检测和语义搜索的向量生成服务</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">API Key</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">API Key（用于冲突检测向量生成）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">API Key（用于冲突检测向量生成）</p>
             </div>
             <div class="input-wrap"><input type="password" v-model="cfg.embedding_api_key" placeholder="sk-..."></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">API Base 地址</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">Embedding 服务的 API 地址</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">Embedding 服务的 API 地址</p>
             </div>
             <div class="input-wrap"><input type="text" v-model="cfg.embedding_api_base" placeholder="https://api.deepseek.com/v1"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">Embedding 模型</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">冲突检测使用的模型（可用 deepseek-v4-flash / deepseek-v4-pro）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">冲突检测使用的模型（可用 deepseek-v4-flash / deepseek-v4-pro）</p>
             </div>
             <div class="input-wrap"><input type="text" v-model="cfg.embedding_model" placeholder="deepseek-v4-flash"></div>
           </div>
@@ -1108,26 +1192,26 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- 行为配置组 -->
         <div class="page-panel" style="margin-bottom:16px;">
-          <h3>🧠 记忆行为配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">控制记忆系统的自动行为和注入策略</p>
+          <h3>记忆行为配置</h3>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">控制记忆系统的自动行为和注入策略</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">📌 启动时自动扫描记忆</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">是否启动时自动开启记忆时间词扫描</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">是否启动时自动开启记忆时间词扫描</p>
             </div>
             <input type="checkbox" v-model="cfg.auto_scan_enabled">
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">📌 自动注入历史教训</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">每次对话前自动注入相关的错误教训，避免重复犯错</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">每次对话前自动注入相关的错误教训，避免重复犯错</p>
             </div>
             <input type="checkbox" v-model="cfg.auto_inject_lessons">
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">📊 单次注入上限</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">每次注入的最大教训条数（1-10）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">每次注入的最大教训条数（1-10）</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.max_lessons_per_inject" min="1" max="10"></div>
           </div>
@@ -1136,25 +1220,25 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v6.0: 检索引擎配置组 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🔧 检索引擎参数</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">控制混合检索的路由权重与评分公式（需重载LM插件生效）</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">控制混合检索的路由权重与评分公式（需重载LM插件生效）</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">RRF 融合 k 值</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">RRF 排序融合参数，越大越平滑</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">RRF 排序融合参数，越大越平滑</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.rrf_k" min="1" max="200"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">文档路由权重</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">文档检索路由的权重 (0-1)</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">文档检索路由的权重 (0-1)</p>
             </div>
             <div class="input-wrap"><input type="number" step="0.01" v-model.number="cfg.document_route_weight" min="0" max="1"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">图谱路由权重</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">图谱检索路由的权重 (0-1)</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">图谱检索路由的权重 (0-1)</p>
             </div>
             <div class="input-wrap"><input type="number" step="0.01" v-model.number="cfg.graph_route_weight" min="0" max="1"></div>
           </div>
@@ -1163,25 +1247,25 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v6.0: 衰减与清理配置组 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>📉 记忆衰减与清理</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">控制记忆的自然遗忘和自动清理策略</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">控制记忆的自然遗忘和自动清理策略</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">记忆衰减率</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">记忆重要性的日衰减率，越大遗忘越快</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">记忆重要性的日衰减率，越大遗忘越快</p>
             </div>
             <div class="input-wrap"><input type="number" step="0.001" v-model.number="cfg.decay_rate" min="0" max="1"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">清理天数阈值</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">多少天未访问的记忆可被清理</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">多少天未访问的记忆可被清理</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.cleanup_days_threshold" min="1" max="365"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">清理重要性阈值</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">重要性低于此值的记忆可被清理 (0-1)</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">重要性低于此值的记忆可被清理 (0-1)</p>
             </div>
             <div class="input-wrap"><input type="number" step="0.01" v-model.number="cfg.cleanup_importance_threshold" min="0" max="1"></div>
           </div>
@@ -1190,18 +1274,18 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v6.0: 原子记忆生命周期组 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>⏳ 原子记忆生命周期</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">控制原子记忆的遗忘、清除和近期加成</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">控制原子记忆的遗忘、清除和近期加成</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">遗忘延迟（天）</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">原子记忆进入遗忘状态的延迟天数</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">原子记忆进入遗忘状态的延迟天数</p>
             </div>
             <div class="input-wrap"><input type="number" step="0.5" v-model.number="cfg.atom_forget_delay_days" min="1" max="90"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">清除延迟（天）</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">原子记忆被彻底清除的延迟天数</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">原子记忆被彻底清除的延迟天数</p>
             </div>
             <div class="input-wrap"><input type="number" step="0.5" v-model.number="cfg.atom_purge_delay_days" min="1" max="365"></div>
           </div>
@@ -1210,25 +1294,25 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v6.0: 图谱记忆配置组 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🕸️ 图谱记忆配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">知识图谱记忆路由的开关与提取参数</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">知识图谱记忆路由的开关与提取参数</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">📌 启用图谱记忆路由</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">开启后检索会走知识图谱路由</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">开启后检索会走知识图谱路由</p>
             </div>
             <input type="checkbox" v-model="cfg.graph_memory_enabled">
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">图谱扩展跳数</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">图谱检索的扩展跳数 (1-2)</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">图谱检索的扩展跳数 (1-2)</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.graph_expansion_hops" min="1" max="2"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">最大主题提取数</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">单次图谱提取的最大主题数</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">单次图谱提取的最大主题数</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.graph_max_topics" min="1" max="20"></div>
           </div>
@@ -1237,18 +1321,18 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v5.5.2: 检索引擎补充 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🔎 检索召回参数</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">控制检索引擎的召回数量和扩展范围</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">控制检索引擎的召回数量和扩展范围</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">Top-K 召回数量</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">检索返回的最大记忆条数（默认5）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">检索返回的最大记忆条数（默认5）</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.recall_top_k" min="1" max="50"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">最大扩展 K 值</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">检索扩展的最大K值上限（默认10）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">检索扩展的最大K值上限（默认10）</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.recall_max_k" min="1" max="100"></div>
           </div>
@@ -1257,11 +1341,11 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v5.5.2: 会话摘要 -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>📝 会话摘要配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">控制反思摘要的触发频率和生成策略</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">控制反思摘要的触发频率和生成策略</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">摘要触发轮次</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">每多少轮对话后触发反思摘要（默认10）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">每多少轮对话后触发反思摘要（默认10）</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.summary_trigger_rounds" min="1" max="100"></div>
           </div>
@@ -1270,32 +1354,32 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- v5.5.2: Dream Engine -->
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🌙 Dream Engine 配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">梦境引擎的自动记忆压缩和定时任务配置</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">梦境引擎的自动记忆压缩和定时任务配置</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">📌 启用 Dream Engine</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">开启后自动进行记忆压缩和整理</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">开启后自动进行记忆压缩和整理</p>
             </div>
             <input type="checkbox" v-model="cfg.dream_enabled">
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">🧹 启用梦境清洗</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">开启后自动清理低价值记忆节点（白名单保护）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">开启后自动清理低价值记忆节点（白名单保护）</p>
             </div>
             <input type="checkbox" v-model="cfg.dream_cleaning_enabled">
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">故事时间</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">每日故事时间（如 22:30）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">每日故事时间（如 22:30）</p>
             </div>
             <div class="input-wrap"><input type="text" v-model="cfg.dream_story_time" placeholder="22:30"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">漂流瓶时间</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">每日漂流瓶时间（如 08:00）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">每日漂流瓶时间（如 08:00）</p>
             </div>
             <div class="input-wrap"><input type="text" v-model="cfg.dream_bottle_time" placeholder="08:00"></div>
           </div>
@@ -1303,22 +1387,22 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- 系统信息展示 (吸收 Mnemosyne 只读配置卡片) -->
         <div class="page-panel" style="margin-bottom:16px;">
-          <h3>📊 系统运行信息 <span style="font-size:11px;color:#5c6080;font-weight:400;">— 只读</span></h3>
+          <h3>📊 系统运行信息 <span style="font-size:11px;color:var(--text-dim);font-weight:400;">— 只读</span></h3>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
-            <div style="background:#171827;border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
-              <div style="font-size:11px;color:#5c6080;text-transform:uppercase;letter-spacing:0.5px;">DB 大小</div>
+            <div style="background:var(--bg-card2);border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
+              <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">DB 大小</div>
               <div style="font-size:18px;font-weight:700;color:#7cb8ff;font-family:monospace;margin-top:2px;">{{sysInfo.db_size_mb || 0}} MB</div>
             </div>
-            <div style="background:#171827;border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
-              <div style="font-size:11px;color:#5c6080;text-transform:uppercase;letter-spacing:0.5px;">梦境引擎</div>
-              <div style="font-size:14px;font-weight:600;color:#ff6b9d;margin-top:2px;">{{sysInfo.dream_stage || 'idle'}}</div>
+            <div style="background:var(--bg-card2);border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
+              <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">梦境引擎</div>
+              <div style="font-size:14px;font-weight:600;color:var(--accent);margin-top:2px;">{{sysInfo.dream_stage || 'idle'}}</div>
             </div>
-            <div style="background:#171827;border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
-              <div style="font-size:11px;color:#5c6080;text-transform:uppercase;letter-spacing:0.5px;">备份状态</div>
+            <div style="background:var(--bg-card2);border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
+              <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">备份状态</div>
               <div style="font-size:14px;font-weight:600;margin-top:2px;" :style="{color: sysInfo.backup_exists ? '#7cff7c' : '#ff6b6b'}">{{sysInfo.backup_exists ? '✅ 已备份' : '❌ 无备份'}}</div>
             </div>
-            <div style="background:#171827;border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
-              <div style="font-size:11px;color:#5c6080;text-transform:uppercase;letter-spacing:0.5px;">加载时间</div>
+            <div style="background:var(--bg-card2);border-radius:8px;padding:12px 14px;border:1px solid #23253a;">
+              <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">加载时间</div>
               <div style="font-size:13px;color:#a3a8cc;margin-top:2px;">{{sysInfo.plugin_load_time || '-'}}</div>
             </div>
           </div>
@@ -1340,15 +1424,15 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
       <div v-show="route==='emotion'">
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>💖 情感引擎配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">上下文感知情感分析引擎 v5.7 — 基于 cnsenti + 自建词典的情感检测</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">上下文感知情感分析引擎 v5.7 — 基于 cnsenti + 自建词典的情感检测</p>
           <!-- 词典统计（只读展示） -->
-          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:#1b1c2e;border-radius:8px;">
-            <div><span style="color:#7e84a3;font-size:11px;">版本</span><br><b style="color:#e2e4f0;font-size:14px;">v5.7</b></div>
-            <div><span style="color:#7e84a3;font-size:11px;">情感词总数</span><br><b style="color:#e2e4f0;font-size:14px;">{{emotionStats.total_words || '加载中...'}}</b></div>
-            <div><span style="color:#7e84a3;font-size:11px;">情感类型</span><br><b style="color:#e2e4f0;font-size:14px;">{{emotionStats.emotion_types || '-'}}</b></div>
-            <div><span style="color:#7e84a3;font-size:11px;">程度副词</span><br><b style="color:#e2e4f0;font-size:14px;">{{emotionStats.intensity_count || '-'}}</b></div>
-            <div><span style="color:#7e84a3;font-size:11px;">否定词</span><br><b style="color:#e2e4f0;font-size:14px;">{{emotionStats.negation_count || '-'}}</b></div>
-            <div><span style="color:#7e84a3;font-size:11px;">转折词</span><br><b style="color:#e2e4f0;font-size:14px;">{{emotionStats.transition_count || '-'}}</b></div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--bg-hover);border-radius:8px;">
+            <div><span style="color:#7e84a3;font-size:11px;">版本</span><br><b style="color:var(--text);font-size:14px;">v5.7</b></div>
+            <div><span style="color:#7e84a3;font-size:11px;">情感词总数</span><br><b style="color:var(--text);font-size:14px;">{{emotionStats.total_words || '加载中...'}}</b></div>
+            <div><span style="color:#7e84a3;font-size:11px;">情感类型</span><br><b style="color:var(--text);font-size:14px;">{{emotionStats.emotion_types || '-'}}</b></div>
+            <div><span style="color:#7e84a3;font-size:11px;">程度副词</span><br><b style="color:var(--text);font-size:14px;">{{emotionStats.intensity_count || '-'}}</b></div>
+            <div><span style="color:#7e84a3;font-size:11px;">否定词</span><br><b style="color:var(--text);font-size:14px;">{{emotionStats.negation_count || '-'}}</b></div>
+            <div><span style="color:#7e84a3;font-size:11px;">转折词</span><br><b style="color:var(--text);font-size:14px;">{{emotionStats.transition_count || '-'}}</b></div>
           </div>
           <!-- 词典详情（可展开） -->
           <details style="margin-bottom:14px;">
@@ -1364,14 +1448,14 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">📌 启用情感分析</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">开启后对话记忆会自动进行情感标注</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">开启后对话记忆会自动进行情感标注</p>
             </div>
             <input type="checkbox" v-model="cfg.emotion_enabled">
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">趋势分析窗口</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">分析情感趋势时参考的最近条数（默认6）</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">分析情感趋势时参考的最近条数（默认6）</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.emotion_trend_window" min="2" max="30"></div>
           </div>
@@ -1390,37 +1474,37 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
       <div v-show="route==='meme'">
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🎭 吐槽联动配置</h3>
-          <p style="font-size:12px;color:#5c6080;margin-bottom:14px;">基于情感状态动态调整吐槽触发概率（供 meme_manager 等插件联动使用）</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">基于情感状态动态调整吐槽触发概率（供 meme_manager 等插件联动使用）</p>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">吐槽基础概率</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">无情感加成时的基础触发概率 0-100</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">无情感加成时的基础触发概率 0-100</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.meme_base_probability" min="0" max="100"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">负面情感最大降幅</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">用户负面情感时降低吐槽概率的最大值</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">用户负面情感时降低吐槽概率的最大值</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.meme_neg_adjust_max" min="0" max="100"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">正面情感最大增幅</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">用户正面情感时增加吐槽概率的最大值</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">用户正面情感时增加吐槽概率的最大值</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.meme_pos_adjust_max" min="0" max="100"></div>
           </div>
           <div class="setting-item">
             <div style="flex:1;">
               <label style="font-size:13px;color:#a3a8cc;">严肃话题最大降幅</label>
-              <p style="font-size:11px;color:#5c6080;margin-top:2px;">严肃/工作话题时降低吐槽概率的最大值</p>
+              <p style="font-size:11px;color:var(--text-dim);margin-top:2px;">严肃/工作话题时降低吐槽概率的最大值</p>
             </div>
             <div class="input-wrap"><input type="number" v-model.number="cfg.meme_serious_adjust_max" min="0" max="100"></div>
           </div>
           <!-- 概率预览 -->
-          <div style="margin-top:10px;padding:10px 14px;background:#1b1c2e;border-radius:8px;font-size:12px;">
+          <div style="margin-top:10px;padding:10px 14px;background:var(--bg-hover);border-radius:8px;font-size:12px;">
             <span style="color:#7e84a3;">概率预览：</span>
             <span style="color:#ff6b6b;">负面→{{Math.max(0, cfg.meme_base_probability - cfg.meme_neg_adjust_max)}}%</span> ·
             <span style="color:#26de81;">正面→{{Math.min(100, cfg.meme_base_probability + cfg.meme_pos_adjust_max)}}%</span> ·
@@ -1444,10 +1528,10 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>🔬 Context 组装追踪</h3>
           <div style="display:flex;gap:24px;flex-wrap:wrap;">
-            <div><span style="color:#7e84a3;font-size:13px;">总追踪数</span><br><b style="font-size:22px;color:#e2e4f0;">{{traceStats.total_traces || 0}}</b></div>
-            <div><span style="color:#7e84a3;font-size:13px;">会话数</span><br><b style="font-size:22px;color:#e2e4f0;">{{traceStats.unique_sessions || 0}}</b></div>
-            <div><span style="color:#7e84a3;font-size:13px;">平均注入</span><br><b style="font-size:22px;color:#e2e4f0;">{{traceStats.avg_injected || 0}}</b></div>
-            <div><span style="color:#7e84a3;font-size:13px;">最大注入</span><br><b style="font-size:22px;color:#e2e4f0;">{{traceStats.max_injected || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">总追踪数</span><br><b style="font-size:22px;color:var(--text);">{{traceStats.total_traces || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">会话数</span><br><b style="font-size:22px;color:var(--text);">{{traceStats.unique_sessions || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">平均注入</span><br><b style="font-size:22px;color:var(--text);">{{traceStats.avg_injected || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">最大注入</span><br><b style="font-size:22px;color:var(--text);">{{traceStats.max_injected || 0}}</b></div>
             <div><span style="color:#7e84a3;font-size:13px;">跳过次数</span><br><b style="font-size:22px;color:#ff4757;">{{traceStats.skipped_count || 0}}</b></div>
           </div>
         </div>
@@ -1456,11 +1540,11 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div v-if="traceList.length === 0" style="color:#7e84a3;text-align:center;padding:20px;">暂无追踪数据</div>
           <div v-else style="display:flex;flex-direction:column;gap:8px;">
             <div v-for="t in traceList" :key="t.trace_id"
-              style="background:#1b1c2e;border-radius:8px;padding:12px 16px;cursor:pointer;border-left:3px solid transparent;"
+              style="background:var(--bg-hover);border-radius:8px;padding:12px 16px;cursor:pointer;border-left:3px solid transparent;"
               :style="{borderLeftColor: t.skipped ? '#ff4757' : '#26de81'}"
               @click="showTraceDetail(t.trace_id)">
               <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="color:#e2e4f0;font-size:13px;">{{t.query_raw || '(空)'}}</span>
+                <span style="color:var(--text);font-size:13px;">{{t.query_raw || '(空)'}}</span>
                 <span style="display:flex;gap:8px;align-items:center;">
                   <span v-if="t.skipped" style="color:#ff4757;font-size:12px;padding:2px 8px;background:#ff475720;border-radius:4px;">跳过</span>
                   <span v-else style="color:#26de81;font-size:12px;padding:2px 8px;background:#26de8120;border-radius:4px;">注入 {{t.injected_count}}</span>
@@ -1477,31 +1561,31 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
       <!-- ==================== Trace Detail Modal ==================== -->
       <div v-if="traceDetailVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="traceDetailVisible=false">
-        <div style="background:#131420;border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+        <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="margin:0;color:#e2e4f0;">追踪详情</h3>
+            <h3 style="margin:0;color:var(--text);">追踪详情</h3>
             <button class="btn small" @click="traceDetailVisible=false">✕</button>
           </div>
           <div v-if="traceDetailLoading" style="text-align:center;padding:20px;color:#7e84a3;">加载中...</div>
           <div v-else-if="traceDetail">
             <div style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">原始查询</div>
-              <div style="color:#e2e4f0;background:#1b1c2e;padding:8px 12px;border-radius:6px;">{{traceDetail.query_raw || '(空)'}}</div>
+              <div style="color:var(--text);background:#1b1c2e;padding:8px 12px;border-radius:6px;">{{traceDetail.query_raw || '(空)'}}</div>
             </div>
             <div v-if="traceDetail.query_expanded" style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">扩展查询</div>
               <div style="color:#a0a4c0;background:#1b1c2e;padding:8px 12px;border-radius:6px;">{{traceDetail.query_expanded}}</div>
             </div>
             <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
-              <div><span style="color:#7e84a3;font-size:12px;">情感</span><br><b style="color:#e2e4f0;">{{traceDetail.emotion_detected || traceDetail.emotion || '-'}}</b></div>
-              <div><span style="color:#7e84a3;font-size:12px;">意图</span><br><b style="color:#e2e4f0;">{{traceDetail.query_intent || '-'}}</b></div>
+              <div><span style="color:#7e84a3;font-size:12px;">情感</span><br><b style="color:var(--text);">{{traceDetail.emotion_detected || traceDetail.emotion || '-'}}</b></div>
+              <div><span style="color:#7e84a3;font-size:12px;">意图</span><br><b style="color:var(--text);">{{traceDetail.query_intent || '-'}}</b></div>
               <div><span style="color:#7e84a3;font-size:12px;">注入数</span><br><b style="color:#26de81;">{{traceDetail.injected_count || 0}}</b></div>
               <div><span style="color:#7e84a3;font-size:12px;">跳过</span><br><b :style="{color: traceDetail.skipped ? '#ff4757' : '#26de81'}">{{traceDetail.skipped ? '是' : '否'}}</b></div>
             </div>
             <div v-if="traceDetail.merged_results && traceDetail.merged_results.length" style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:6px;">注入的记忆列表</div>
               <div v-for="(m, i) in traceDetail.merged_results" :key="i" style="background:#1b1c2e;padding:8px 12px;border-radius:6px;margin-bottom:4px;">
-                <div style="color:#e2e4f0;font-size:13px;">{{m.content_preview || '(无预览)'}}</div>
+                <div style="color:var(--text);font-size:13px;">{{m.content_preview || '(无预览)'}}</div>
                 <div style="color:#7e84a3;font-size:11px;margin-top:2px;">
                   score: {{m.final_score}} · importance: {{m.score_breakdown?.importance || '-'}} · doc_id: {{m.doc_id}}
                 </div>
@@ -1528,17 +1612,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <div class="page-panel" style="margin-bottom:16px;">
           <h3>📋 会话摘要</h3>
           <div style="display:flex;gap:24px;flex-wrap:wrap;">
-            <div><span style="color:#7e84a3;font-size:13px;">摘要总数</span><br><b style="font-size:22px;color:#e2e4f0;">{{summaryStats.total_summaries || 0}}</b></div>
-            <div><span style="color:#7e84a3;font-size:13px;">覆盖会话</span><br><b style="font-size:22px;color:#e2e4f0;">{{summaryStats.unique_sessions || 0}}</b></div>
-            <div><span style="color:#7e84a3;font-size:13px;">平均消息数</span><br><b style="font-size:22px;color:#e2e4f0;">{{summaryStats.avg_message_count || 0}}</b></div>
-            <div><span style="color:#7e84a3;font-size:13px;">平均时长(分)</span><br><b style="font-size:22px;color:#e2e4f0;">{{summaryStats.avg_duration_minutes || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">摘要总数</span><br><b style="font-size:22px;color:var(--text);">{{summaryStats.total_summaries || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">覆盖会话</span><br><b style="font-size:22px;color:var(--text);">{{summaryStats.unique_sessions || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">平均消息数</span><br><b style="font-size:22px;color:var(--text);">{{summaryStats.avg_message_count || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">平均时长(分)</span><br><b style="font-size:22px;color:var(--text);">{{summaryStats.avg_duration_minutes || 0}}</b></div>
           </div>
           <div v-if="summaryStats.last_summary_time" style="margin-top:12px;color:#7e84a3;font-size:12px;">
             最近摘要：{{formatSummaryTime(summaryStats.last_summary_time)}}
           </div>
           <div style="margin-top:12px;">
             <button @click="generateSummary" :disabled="summaryGenerating"
-              style="background:#252640;color:#e2e4f0;border:1px solid #3a3b5c;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;">
+              style="background:#252640;color:var(--text);border:1px solid #3a3b5c;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;">
               {{summaryGenerating ? '生成中...' : '⚡ 立即生成当前会话摘要'}}
             </button>
           </div>
@@ -1548,11 +1632,11 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div v-if="summaryList.length === 0" style="color:#7e84a3;text-align:center;padding:20px;">暂无会话摘要</div>
           <div v-else style="display:flex;flex-direction:column;gap:8px;">
             <div v-for="s in summaryList" :key="s.id"
-              style="background:#1b1c2e;border-radius:8px;padding:12px 16px;cursor:pointer;border-left:3px solid #26de81;"
+              style="background:var(--bg-hover);border-radius:8px;padding:12px 16px;cursor:pointer;border-left:3px solid #26de81;"
               @click="showSummaryDetail(s)">
               <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="color:#e2e4f0;font-size:13px;">{{s.content ? s.content.slice(0,80)+'...' : '(空摘要)'}}</span>
-                <span style="color:#5c6080;font-size:11px;">{{formatSummaryTime(s.created_at)}}</span>
+                <span style="color:var(--text);font-size:13px;">{{s.content ? s.content.slice(0,80)+'...' : '(空摘要)'}}</span>
+                <span style="color:var(--text-dim);font-size:11px;">{{formatSummaryTime(s.created_at)}}</span>
               </div>
               <div style="margin-top:4px;color:#7e84a3;font-size:12px;">
                 <span>{{s.message_count}}条消息</span> · <span>{{s.duration_minutes}}分钟</span> · <span>{{s.emotion}}</span>
@@ -1565,17 +1649,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
       <!-- ==================== Summary Detail Modal ==================== -->
       <div v-if="summaryDetailVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="summaryDetailVisible=false">
-        <div style="background:#131420;border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+        <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="margin:0;color:#e2e4f0;">摘要详情</h3>
+            <h3 style="margin:0;color:var(--text);">摘要详情</h3>
             <button class="btn small" @click="summaryDetailVisible=false">✕</button>
           </div>
           <div v-if="summaryDetail">
             <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
-              <div><span style="color:#7e84a3;font-size:12px;">时间</span><br><b style="color:#e2e4f0;">{{formatSummaryTime(summaryDetail.created_at)}}</b></div>
+              <div><span style="color:#7e84a3;font-size:12px;">时间</span><br><b style="color:var(--text);">{{formatSummaryTime(summaryDetail.created_at)}}</b></div>
               <div><span style="color:#7e84a3;font-size:12px;">消息数</span><br><b style="color:#26de81;">{{summaryDetail.message_count}}</b></div>
-              <div><span style="color:#7e84a3;font-size:12px;">时长</span><br><b style="color:#e2e4f0;">{{summaryDetail.duration_minutes}}分钟</b></div>
-              <div><span style="color:#7e84a3;font-size:12px;">情绪</span><br><b style="color:#e2e4f0;">{{summaryDetail.emotion}}</b></div>
+              <div><span style="color:#7e84a3;font-size:12px;">时长</span><br><b style="color:var(--text);">{{summaryDetail.duration_minutes}}分钟</b></div>
+              <div><span style="color:#7e84a3;font-size:12px;">情绪</span><br><b style="color:var(--text);">{{summaryDetail.emotion}}</b></div>
             </div>
             <div v-if="summaryDetail.topics && summaryDetail.topics.length" style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">话题标签</div>
@@ -1585,7 +1669,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             </div>
             <div style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">摘要内容</div>
-              <div style="color:#e2e4f0;background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{summaryDetail.full_content || summaryDetail.content}}</div>
+              <div style="color:var(--text);background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{summaryDetail.full_content || summaryDetail.content}}</div>
             </div>
             <div v-if="summaryDetail.continuation_points && summaryDetail.continuation_points.length" style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">续接点</div>
@@ -1603,12 +1687,12 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
             <div>
               <h3 style="margin:0;">💬 对话叙事摘要 (v5.5 Digest)</h3>
-              <p style="font-size:12px;color:#5c6080;margin-top:4px;">每 10 轮对话自动生成的叙事性摘要，记录我们聊过的话题和情感流动～</p>
+              <p style="font-size:12px;color:var(--text-dim);margin-top:4px;">每 10 轮对话自动生成的叙事性摘要，记录我们聊过的话题和情感流动～</p>
             </div>
             <button class="btn small ghost" @click="loadDigests">🔄 刷新</button>
           </div>
           <div v-if="digestStats" style="display:flex;gap:24px;flex-wrap:wrap;margin-top:14px;">
-            <div><span style="color:#7e84a3;font-size:13px;">Digest 总数</span><br><b style="font-size:22px;color:#ff6b9d;">{{digestStats.total || 0}}</b></div>
+            <div><span style="color:#7e84a3;font-size:13px;">Digest 总数</span><br><b style="font-size:22px;color:var(--accent);">{{digestStats.total || 0}}</b></div>
             <div><span style="color:#7e84a3;font-size:13px;">覆盖会话</span><br><b style="font-size:22px;color:#7cb8ff;">{{digestStats.sessions || 0}}</b></div>
             <div><span style="color:#7e84a3;font-size:13px;">最新轮次</span><br><b style="font-size:22px;color:#7cff7c;">{{digestStats.latest_turn || 0}}</b></div>
             <div><span style="color:#7e84a3;font-size:13px;">总消息数</span><br><b style="font-size:22px;color:#c4b5fd;">{{digestStats.total_messages || 0}}</b></div>
@@ -1618,29 +1702,29 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
         <!-- Digest 时间线 -->
         <div class="page-panel" style="margin-bottom:0;">
           <h3>📜 Digest 时间线</h3>
-          <div v-if="digestLoading" style="text-align:center;padding:30px;color:#ff6b9d;">📚 加载中...</div>
-          <div v-else-if="digestList.length === 0" style="text-align:center;padding:30px;color:#5c6080;">
+          <div v-if="digestLoading" style="text-align:center;padding:30px;color:var(--accent);">📚 加载中...</div>
+          <div v-else-if="digestList.length === 0" style="text-align:center;padding:30px;color:var(--text-dim);">
             <div style="font-size:36px;opacity:0.5;margin-bottom:8px;">💬</div>
             <p>还没有 Digest 记录～</p>
-            <p style="font-size:12px;color:#3c4060;margin-top:4px;">每 10 轮对话会自动生成一篇叙事摘要，继续和小雪聊天就会有了 (≧▽≦)</p>
+            <p style="font-size:12px;color:var(--text-dim);margin-top:4px;">每 10 轮对话会自动生成一篇叙事摘要，继续和小雪聊天就会有了 (≧▽≦)</p>
           </div>
           <div v-else style="display:flex;flex-direction:column;gap:12px;">
             <div v-for="(d, i) in digestList" :key="i"
-              style="background:#171827;border-radius:10px;padding:16px 20px;border:1px solid #23253a;border-left:3px solid #ff6b9d;cursor:pointer;transition:all .25s;"
+              style="background:var(--bg-card2);border-radius:10px;padding:16px 20px;border:1px solid #23253a;border-left:3px solid #ff6b9d;cursor:pointer;transition:all .25s;"
               @click="showDigestDetail(d)">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                 <div style="flex:1;">
                   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
-                    <span style="background:#ff6b9d20;color:#ff6b9d;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;">Turn {{d.digest_turn != null ? d.digest_turn : '?'}}</span>
-                    <span v-if="d.message_count" style="color:#5c6080;font-size:11px;">{{d.message_count}} 条消息</span>
+                    <span style="background:#ff6b9d20;color:var(--accent);font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;">Turn {{d.digest_turn != null ? d.digest_turn : '?'}}</span>
+                    <span v-if="d.message_count" style="color:var(--text-dim);font-size:11px;">{{d.message_count}} 条消息</span>
                     <span v-if="d.sentiment" style="font-size:11px;" :style="{color: d.sentiment==='positive'?'#7cff7c':d.sentiment==='negative'?'#ff6b6b':'#7cb8ff'}">{{d.sentiment}}</span>
                   </div>
-                  <div style="color:#e2e4f0;font-size:13px;line-height:1.6;">{{(d.canonical_summary || d.content || '').slice(0, 150)}}{{(d.canonical_summary || d.content || '').length > 150 ? '...' : ''}}</div>
+                  <div style="color:var(--text);font-size:13px;line-height:1.6;">{{(d.canonical_summary || d.content || '').slice(0, 150)}}{{(d.canonical_summary || d.content || '').length > 150 ? '...' : ''}}</div>
                   <div v-if="d.topics && d.topics.length" style="margin-top:6px;">
-                    <span v-for="t in d.topics" :key="t" style="display:inline-block;background:#1a1e2e;color:#c4b5fd;border:1px solid #2a2e4e;border-radius:10px;padding:2px 8px;margin:2px;font-size:10px;">#{{t}}</span>
+                    <span v-for="t in d.topics" :key="t" style="display:inline-block;background:var(--bg-hover2);color:#c4b5fd;border:1px solid #2a2e4e;border-radius:10px;padding:2px 8px;margin:2px;font-size:10px;">#{{t}}</span>
                   </div>
                 </div>
-                <span style="color:#5c6080;font-size:11px;white-space:nowrap;margin-left:12px;">{{formatDigestTime(d.created_at)}}</span>
+                <span style="color:var(--text-dim);font-size:11px;white-space:nowrap;margin-left:12px;">{{formatDigestTime(d.created_at)}}</span>
               </div>
             </div>
           </div>
@@ -1648,17 +1732,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- Digest 详情弹窗 -->
         <div v-if="digestDetailVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="digestDetailVisible=false">
-          <div style="background:#131420;border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+          <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-              <h3 style="margin:0;color:#ff6b9d;">💬 Digest 详情</h3>
+              <h3 style="margin:0;color:var(--accent);">💬 Digest 详情</h3>
               <button class="btn small" @click="digestDetailVisible=false">✕</button>
             </div>
             <div v-if="digestDetail">
               <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
-                <div><span style="color:#7e84a3;font-size:12px;">轮次</span><br><b style="color:#ff6b9d;">Turn {{digestDetail.digest_turn != null ? digestDetail.digest_turn : '-'}}</b></div>
+                <div><span style="color:#7e84a3;font-size:12px;">轮次</span><br><b style="color:var(--accent);">Turn {{digestDetail.digest_turn != null ? digestDetail.digest_turn : '-'}}</b></div>
                 <div><span style="color:#7e84a3;font-size:12px;">消息数</span><br><b style="color:#7cff7c;">{{digestDetail.message_count || '-'}}</b></div>
                 <div><span style="color:#7e84a3;font-size:12px;">情感</span><br><b style="color:#7cb8ff;">{{digestDetail.sentiment || '-'}}</b></div>
-                <div><span style="color:#7e84a3;font-size:12px;">时间</span><br><b style="color:#e2e4f0;">{{formatDigestTime(digestDetail.created_at)}}</b></div>
+                <div><span style="color:#7e84a3;font-size:12px;">时间</span><br><b style="color:var(--text);">{{formatDigestTime(digestDetail.created_at)}}</b></div>
               </div>
               <div v-if="digestDetail.topics && digestDetail.topics.length" style="margin-bottom:12px;">
                 <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">话题</div>
@@ -1668,7 +1752,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
               </div>
               <div style="margin-bottom:12px;">
                 <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">叙事内容</div>
-                <div style="color:#e2e4f0;background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{digestDetail.full_content || digestDetail.content || digestDetail.canonical_summary || '(无内容)'}}</div>
+                <div style="color:var(--text);background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{digestDetail.full_content || digestDetail.content || digestDetail.canonical_summary || '(无内容)'}}</div>
               </div>
               <div v-if="digestDetail.key_facts && digestDetail.key_facts.length" style="margin-bottom:12px;">
                 <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">关键事实</div>
@@ -1692,7 +1776,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <div class="stat-label">📄 文档总数</div>
           </div>
           <div class="stat-card">
-            <div class="stat-num" style="color:#ff6b9d">{{monitorData.total_atoms || 0}}</div>
+            <div class="stat-num" style="color:var(--accent)">{{monitorData.total_atoms || 0}}</div>
             <div class="stat-label">⚛ 原子记忆数</div>
           </div>
           <div class="stat-card">
@@ -1703,13 +1787,13 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- v5.5 双索引健康面板 (春雪原创) -->
         <div class="page-panel" style="margin-bottom:16px;">
-          <h3>🩺 v5.5 双索引健康状态 <span style="font-size:11px;color:#5c6080;font-weight:400;">— BM25 + Vector 智能降级监控</span></h3>
-          <div v-if="monitorLoading" style="text-align:center;padding:20px;color:#ff6b9d;">🩺 检测中...</div>
+          <h3>🩺 v5.5 双索引健康状态 <span style="font-size:11px;color:var(--text-dim);font-weight:400;">— BM25 + Vector 智能降级监控</span></h3>
+          <div v-if="monitorLoading" style="text-align:center;padding:20px;color:var(--accent);">🩺 检测中...</div>
           <div v-else style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
             <!-- BM25 状态 -->
-            <div style="background:#171827;border-radius:10px;padding:16px;border:1px solid #23253a;">
+            <div style="background:var(--bg-card2);border-radius:10px;padding:16px;border:1px solid #23253a;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                <span style="font-size:14px;font-weight:600;color:#e2e4f0;">📝 BM25 全文索引</span>
+                <span style="font-size:14px;font-weight:600;color:var(--text);">📝 BM25 全文索引</span>
                 <span style="font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;"
                   :style="bm25StatusStyle">
                   {{monitorData.bm25_status || 'unknown'}}
@@ -1723,9 +1807,9 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
               </div>
             </div>
             <!-- Vector 状态 -->
-            <div style="background:#171827;border-radius:10px;padding:16px;border:1px solid #23253a;">
+            <div style="background:var(--bg-card2);border-radius:10px;padding:16px;border:1px solid #23253a;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                <span style="font-size:14px;font-weight:600;color:#e2e4f0;">🔮 向量索引</span>
+                <span style="font-size:14px;font-weight:600;color:var(--text);">🔮 向量索引</span>
                 <span style="font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;"
                   :style="vectorStatusStyle">
                   {{monitorData.vector_status || 'unknown'}}
@@ -1745,7 +1829,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <div v-for="(e, i) in monitorData.fallback_events.slice(0, 5)" :key="i"
               style="background:#1a1520;border:1px solid #3a2530;border-radius:6px;padding:8px 12px;margin-bottom:4px;font-size:12px;">
               <span style="color:#ffa502;">[{{e.time}}]</span>
-              <span style="color:#e2e4f0;">{{e.event}}</span>
+              <span style="color:var(--text);">{{e.event}}</span>
             </div>
           </div>
         </div>
@@ -1756,11 +1840,11 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <div v-if="monitorLoading" style="text-align:center;padding:16px;color:#7e84a3;">检测中...</div>
           <div v-else style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
             <div v-for="c in monitorComponents" :key="c.name"
-              style="background:#171827;border-radius:8px;padding:12px 14px;border:1px solid #23253a;display:flex;align-items:center;gap:10px;">
+              style="background:var(--bg-card2);border-radius:8px;padding:12px 14px;border:1px solid #23253a;display:flex;align-items:center;gap:10px;">
               <div :style="{width:'10px',height:'10px',borderRadius:'50%',background:c.healthy?'#7cff7c':'#ff6b6b',boxShadow:c.healthy?'0 0 6px #7cff7c':'0 0 6px #ff6b6b'}"></div>
               <div>
-                <div style="font-size:13px;color:#e2e4f0;font-weight:500;">{{c.name}}</div>
-                <div style="font-size:11px;color:#5c6080;">{{c.detail}}</div>
+                <div style="font-size:13px;color:var(--text);font-weight:500;">{{c.name}}</div>
+                <div style="font-size:11px;color:var(--text-dim);">{{c.detail}}</div>
               </div>
             </div>
           </div>
@@ -1771,19 +1855,19 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
           <h3>⚡ 性能指标</h3>
           <div v-if="monitorLoading" style="text-align:center;padding:16px;color:#7e84a3;">检测中...</div>
           <div v-else style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
-            <div style="background:#171827;border-radius:8px;padding:14px;border:1px solid #23253a;">
+            <div style="background:var(--bg-card2);border-radius:8px;padding:14px;border:1px solid #23253a;">
               <div style="font-size:12px;color:#7e84a3;">BM25 查询 P95</div>
               <div style="font-size:20px;font-weight:700;color:#7cff7c;font-family:monospace;">{{monitorData.bm25_p95_ms || '-'}} ms</div>
             </div>
-            <div style="background:#171827;border-radius:8px;padding:14px;border:1px solid #23253a;">
+            <div style="background:var(--bg-card2);border-radius:8px;padding:14px;border:1px solid #23253a;">
               <div style="font-size:12px;color:#7e84a3;">向量搜索 P95</div>
               <div style="font-size:20px;font-weight:700;color:#7cb8ff;font-family:monospace;">{{monitorData.vector_p95_ms || '-'}} ms</div>
             </div>
-            <div style="background:#171827;border-radius:8px;padding:14px;border:1px solid #23253a;">
+            <div style="background:var(--bg-card2);border-radius:8px;padding:14px;border:1px solid #23253a;">
               <div style="font-size:12px;color:#7e84a3;">混合检索 P95</div>
-              <div style="font-size:20px;font-weight:700;color:#ff6b9d;font-family:monospace;">{{monitorData.hybrid_p95_ms || '-'}} ms</div>
+              <div style="font-size:20px;font-weight:700;color:var(--accent);font-family:monospace;">{{monitorData.hybrid_p95_ms || '-'}} ms</div>
             </div>
-            <div style="background:#171827;border-radius:8px;padding:14px;border:1px solid #23253a;">
+            <div style="background:var(--bg-card2);border-radius:8px;padding:14px;border:1px solid #23253a;">
               <div style="font-size:12px;color:#7e84a3;">DB 操作 P95</div>
               <div style="font-size:20px;font-weight:700;color:#c4b5fd;font-family:monospace;">{{monitorData.db_p95_ms || '-'}} ms</div>
             </div>
@@ -1792,17 +1876,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
         <!-- 记忆置信度分布 (春雪原创) -->
         <div class="page-panel">
-          <h3>🎯 记忆置信度分布 <span style="font-size:11px;color:#5c6080;font-weight:400;">— importance 分布直方图</span></h3>
+          <h3>🎯 记忆置信度分布 <span style="font-size:11px;color:var(--text-dim);font-weight:400;">— importance 分布直方图</span></h3>
           <div id="confidence-chart" style="width:100%;height:220px;"></div>
         </div>
 
         <!-- v5.5 分层记忆统计 (春雪原创) -->
         <div v-if="monitorData.tier_stats && Object.keys(monitorData.tier_stats).length" class="page-panel" style="margin-top:16px;">
-          <h3>🧬 分层记忆分布 <span style="font-size:11px;color:#5c6080;font-weight:400;">— L0~L3 记忆层级（点击查看详情）</span></h3>
+          <h3>🧬 分层记忆分布 <span style="font-size:11px;color:var(--text-dim);font-weight:400;">— L0~L3 记忆层级（点击查看详情）</span></h3>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
             <div v-for="(count, name) in monitorData.tier_stats" :key="name"
               @click="openTierDetails(name)"
-              style="background:#171827;border-radius:8px;padding:14px;border:1px solid #23253a;text-align:center;cursor:pointer;transition:transform .15s,border-color .15s;"
+              style="background:var(--bg-card2);border-radius:8px;padding:14px;border:1px solid #23253a;text-align:center;cursor:pointer;transition:transform .15s,border-color .15s;"
               onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='#ff6b9d'"
               onmouseout="this.style.transform='';this.style.borderColor='#23253a'">
               <div style="font-size:11px;color:#7e84a3;margin-bottom:4px;">{{name}}</div>
@@ -1817,7 +1901,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
       <!-- v5.8: 情感事件详情 Modal -->
       <div v-if="emotionEventDetail" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="emotionEventDetail=null">
-        <div style="background:#131420;border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+        <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
             <h3 style="margin:0;" :style="{color: emotionEventDetail.sentiment==='positive' ? '#7cff7c' : '#ff6b6b'}">
               {{emotionEventDetail.sentiment==='positive' ? '☀ 正面高光时刻' : '☂ 负面情绪时刻'}}
@@ -1832,12 +1916,12 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             </div>
             <div style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">记忆原文</div>
-              <div style="color:#e2e4f0;background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{emotionEventDetail.content || '(无内容)'}}</div>
+              <div style="color:var(--text);background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{emotionEventDetail.content || '(无内容)'}}</div>
             </div>
             <div v-if="emotionEventDetail.matched.length">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:6px;">匹配到的情感词</div>
               <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                <span v-for="(m, i) in emotionEventDetail.matched" :key="i" style="padding:2px 8px;border-radius:10px;font-size:11px;background:#1a1e2e;border:1px solid #2a2e4e;" :style="{color: m.polarity==='positive' ? '#7cff7c' : m.polarity==='negative' ? '#ff6b6b' : '#7cb8ff'}">
+                <span v-for="(m, i) in emotionEventDetail.matched" :key="i" style="padding:2px 8px;border-radius:10px;font-size:11px;background:var(--bg-hover2);border:1px solid #2a2e4e;" :style="{color: m.polarity==='positive' ? '#7cff7c' : m.polarity==='negative' ? '#ff6b6b' : '#7cb8ff'}">
                   {{m.word}} <span style="opacity:0.6;">×{{m.count}}</span>
                 </span>
               </div>
@@ -1848,22 +1932,22 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
       <!-- ==================== Memory Detail Modal (吸收 Mnemosyne) ==================== -->
       <div v-if="memoryDetailVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="memoryDetailVisible=false">
-        <div style="background:#131420;border-radius:12px;padding:24px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+        <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="margin:0;color:#ff6b9d;">📝 记忆详情</h3>
+            <h3 style="margin:0;color:var(--accent);">📝 记忆详情</h3>
             <button class="btn small" @click="memoryDetailVisible=false">✕</button>
           </div>
           <div v-if="memoryDetail">
             <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
               <div><span style="color:#7e84a3;font-size:12px;">ID</span><br><b style="color:#a0a4c0;font-family:monospace;font-size:12px;">{{memoryDetail.id || '-'}}</b></div>
               <div><span style="color:#7e84a3;font-size:12px;">类型</span><br><b style="color:#7cb8ff;">{{memoryDetail.type || memoryDetail.atom_type || '-'}}</b></div>
-              <div><span style="color:#7e84a3;font-size:12px;">重要度</span><br><b style="color:#ff6b9d;">{{memoryDetail.importance != null ? memoryDetail.importance : '-'}}</b></div>
+              <div><span style="color:#7e84a3;font-size:12px;">重要度</span><br><b style="color:var(--accent);">{{memoryDetail.importance != null ? memoryDetail.importance : '-'}}</b></div>
               <div><span style="color:#7e84a3;font-size:12px;">置信度</span><br><b style="color:#7cff7c;">{{memoryDetail.confidence != null ? memoryDetail.confidence : '-'}}</b></div>
               <div v-if="memoryDetail.sentiment"><span style="color:#7e84a3;font-size:12px;">情感</span><br><b style="color:#c4b5fd;">{{memoryDetail.sentiment}}</b></div>
             </div>
             <div style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">内容</div>
-              <div style="color:#e2e4f0;background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{memoryDetail.content || '(无内容)'}}</div>
+              <div style="color:var(--text);background:#1b1c2e;padding:12px 16px;border-radius:6px;font-size:14px;white-space:pre-wrap;line-height:1.6;">{{memoryDetail.content || '(无内容)'}}</div>
             </div>
             <div v-if="memoryDetail.tags && memoryDetail.tags.length" style="margin-bottom:12px;">
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">标签</div>
@@ -1875,7 +1959,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
               <div style="color:#7e84a3;font-size:12px;margin-bottom:4px;">元数据</div>
               <pre style="color:#a0a4c0;background:#1b1c2e;padding:10px 14px;border-radius:6px;font-size:11px;overflow-x:auto;max-height:200px;">{{JSON.stringify(memoryDetail.metadata, null, 2)}}</pre>
             </div>
-            <div v-if="memoryDetail.created_at" style="font-size:12px;color:#5c6080;">
+            <div v-if="memoryDetail.created_at" style="font-size:12px;color:var(--text-dim);">
               创建时间：{{memoryDetail.created_at}}
             </div>
           </div>
@@ -1884,17 +1968,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
       <!-- ==================== Tier Details Modal ==================== -->
       <div v-if="tierDetailVisible" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" @click.self="tierDetailVisible=false">
-        <div style="background:#131420;border-radius:12px;padding:24px;max-width:650px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
+        <div style="background:var(--bg-card);border-radius:12px;padding:24px;max-width:650px;width:100%;max-height:80vh;overflow-y:auto;border:1px solid #1f2235;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="margin:0;color:#ff6b9d;">🧬 {{tierDetailTitle}} <span style="font-size:13px;color:#7e84a3;font-weight:400;">共 {{tierDetailTotal}} 条</span></h3>
+            <h3 style="margin:0;color:var(--accent);">🧬 {{tierDetailTitle}} <span style="font-size:13px;color:#7e84a3;font-weight:400;">共 {{tierDetailTotal}} 条</span></h3>
             <button class="btn small" @click="tierDetailVisible=false">✕</button>
           </div>
           <div v-if="tierDetailLoading" style="text-align:center;padding:40px;color:#7e84a3;">加载中...</div>
           <div v-else-if="tierDetailData && tierDetailData.length">
             <div v-for="item in tierDetailData" :key="item.id"
               style="background:#1b1c2e;padding:12px 16px;border-radius:6px;margin-bottom:8px;font-size:13px;line-height:1.5;">
-              <div style="color:#e2e4f0;word-break:break-word;">{{item.content}}</div>
-              <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:#5c6080;">
+              <div style="color:var(--text);word-break:break-word;">{{item.content}}</div>
+              <div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text-dim);">
                 <span v-if="item.type">[{{item.type}}]</span>
                 <span v-if="item.time">{{item.time}}</span>
               </div>
@@ -2152,7 +2236,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
       <div v-show="route==='family'" class="family-page">
         <!-- 顶部刷新栏 -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <span style="font-size:13px;color:#5c6080" v-if="famLastRefresh">
+          <span style="font-size:13px;color:var(--text-dim)" v-if="famLastRefresh">
             最后刷新: {{famLastRefresh}}
           </span>
           <span v-else></span>
@@ -2261,18 +2345,18 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <!-- 反馈互动详情 -->
             <div v-else-if="famDetailView==='feedback'" class="fam-detail-body">
               <div v-if="famFeedback.by_type && Object.keys(famFeedback.by_type).length" style="margin-bottom:16px">
-                <div style="font-size:12px;color:#5c6080;margin-bottom:8px">事件类型分布</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">事件类型分布</div>
                 <div class="fam-kv">
                   <div v-for="(c,t) in famFeedback.by_type" :key="t" class="fam-kv-item"><span class="k">{{t}}</span><span class="v">{{c}} 次</span></div>
                 </div>
               </div>
               <div v-if="famFeedback.by_pair && Object.keys(famFeedback.by_pair).length" style="margin-bottom:16px">
-                <div style="font-size:12px;color:#5c6080;margin-bottom:8px">家人互动排行</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">家人互动排行</div>
                 <div class="fam-kv">
                   <div v-for="(c,p) in famFeedback.by_pair" :key="p" class="fam-kv-item"><span class="k">{{p}}</span><span class="v">{{c}} 次</span></div>
                 </div>
               </div>
-              <div style="font-size:12px;color:#5c6080;margin-bottom:8px">最近 {{famFeedbackRows.length}} 条反馈</div>
+              <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">最近 {{famFeedbackRows.length}} 条反馈</div>
               <div v-for="fb in famFeedbackRows" :key="fb.id" class="fam-fb">
                 <span class="fam-fb-main">
                   <span class="fam-fb-mod">{{fb.from_module}}</span>
@@ -2292,17 +2376,17 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
                   {{famScanning ? '扫描中...' : '扫描沉睡记忆'}}
                 </button>
               </div>
-              <div v-if="famScanResult" style="background:#161728;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#aab;line-height:1.6">
+              <div v-if="famScanResult" style="background:#1e2130;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:#aab;line-height:1.6">
                 <span v-if="famScanResult.status==='ok' || famScanResult.status==='success'">
                   扫描完成: 新增 {{famScanResult.new_candidates||0}} 个候选
                   <span v-if="famScanResult.candidates && famScanResult.candidates.length">
                     (共 {{famScanResult.candidates.length}} 条)
                   </span>
                 </span>
-                <span v-else style="color:#ff6b9d">{{famScanResult.msg || famScanResult.message || '扫描完成'}}</span>
+                <span v-else style="color:var(--accent)">{{famScanResult.msg || famScanResult.message || '扫描完成'}}</span>
               </div>
               <div v-if="famArchive.breakdown && Object.keys(famArchive.breakdown).length" style="margin-bottom:16px">
-                <div style="font-size:12px;color:#5c6080;margin-bottom:8px">状态分布</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">状态分布</div>
                 <div class="fam-kv">
                   <div v-for="(c,s) in famArchive.breakdown" :key="s" class="fam-kv-item"><span class="k">{{s}}</span><span class="v">{{c}}</span></div>
                   <div class="fam-kv-item"><span class="k">待处理</span><span class="v">{{famArchive.pending||0}}</span></div>
@@ -2314,16 +2398,16 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
             <!-- 冲突检测详情 -->
             <div v-else-if="famDetailView==='conflicts'" class="fam-detail-body">
               <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
-                <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">待处理</span><span class="v" style="color:#ff6b9d">{{famConflicts.pending}}</span></div>
+                <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">待处理</span><span class="v" style="color:var(--accent)">{{famConflicts.pending}}</span></div>
                 <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">已确认</span><span class="v">{{famConflicts.confirmed}}</span></div>
                 <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">已解决</span><span class="v">{{famConflicts.resolved}}</span></div>
                 <div class="fam-kv-item" style="flex:1;min-width:100px"><span class="k">总计</span><span class="v">{{famConflicts.total}}</span></div>
               </div>
-              <div v-if="famConflicts.recent && famConflicts.recent.length" style="font-size:12px;color:#5c6080;margin-bottom:8px">最近 {{famConflicts.recent.length}} 条冲突</div>
-              <div v-for="c in famConflicts.recent" :key="c.id" style="background:#161728;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:13px">
+              <div v-if="famConflicts.recent && famConflicts.recent.length" style="font-size:12px;color:var(--text-dim);margin-bottom:8px">最近 {{famConflicts.recent.length}} 条冲突</div>
+              <div v-for="c in famConflicts.recent" :key="c.id" style="background:#1e2130;border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:13px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
                   <span style="font-size:11px;padding:1px 7px;border-radius:20px" :style="{background: c.status==='candidate'?'rgba(255,107,157,.12)':'rgba(138,124,255,.12)',color: c.status==='candidate'?'#ff6b9d':'#8a7cff'}">{{c.status}}</span>
-                  <span style="font-size:11px;color:#5c6080">{{c.conflict_type || ''}} {{c.confidence ? (c.confidence*100).toFixed(0)+'%' : ''}}</span>
+                  <span style="font-size:11px;color:var(--text-dim)">{{c.conflict_type || ''}} {{c.confidence ? (c.confidence*100).toFixed(0)+'%' : ''}}</span>
                 </div>
                 <!-- 确认/处理时间标注 -->
                 <div v-if="c.resolved_at && c.resolution" style="font-size:11px;color:#8a7cff;background:rgba(138,124,255,.06);border-radius:4px;padding:3px 8px;margin-bottom:4px">
@@ -2331,7 +2415,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
                 </div>
                 <div v-if="c.reason" style="color:#aab;line-height:1.5;margin-bottom:6px">{{c.reason}}</div>
                 <div v-if="c.new_content" style="color:#d0d0e8;font-size:12px;border-left:2px solid #ff6b9d;padding-left:8px;margin-top:4px;line-height:1.6">
-                  <span style="color:#ff6b9d;font-size:10px">新记忆</span><br>{{c.new_content}}
+                  <span style="color:var(--accent);font-size:10px">新记忆</span><br>{{c.new_content}}
                 </div>
                 <div v-if="c.old_content" style="color:#d0d0e8;font-size:12px;border-left:2px solid #5c6080;padding-left:8px;margin-top:4px;line-height:1.6">
                   <span style="color:#8a8aaa;font-size:10px">旧记忆</span><br>{{c.old_content}}
@@ -2344,7 +2428,7 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
                 </div>
               </div>
               <div v-if="!famConflicts.recent || !famConflicts.recent.length" class="empty-state" style="padding:20px;text-align:center">
-                <div style="font-size:13px;color:#5c6080">暂无待处理冲突～</div>
+                <div style="font-size:13px;color:var(--text-dim)">暂无待处理冲突～</div>
                 <div style="font-size:11px;color:#4a4e68;margin-top:4px">新记忆写入时会自动检测</div>
               </div>
             </div>
@@ -2369,6 +2453,40 @@ body.light-theme input[style*="background"]{color:#2a2d3e !important}
 
 <script>
 const { createApp } = Vue;
+
+// v5.6+: ECharts 按需懒加载——1MB 不再阻塞首屏，首个图表渲染时才注入
+let _echartsReady = null;
+function ensureEcharts() {
+  if (window.echarts) return Promise.resolve(window.echarts);
+  if (!_echartsReady) {
+    _echartsReady = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      // v5.7.2fix: 动态 script 不经服务端 HTML 改写器（vue/petals 被改写成带 asset_token 的绝对路径，这里没有），
+      // 相对路径解析会丢 query 导致 401。自己从当前页 URL 捡 token 拼上。
+      const _atok = new URLSearchParams(location.search).get("asset_token") || "";
+      s.src = "echarts.min.js" + (_atok ? "?asset_token=" + encodeURIComponent(_atok) : "");
+      s.onload = () => resolve(window.echarts);
+      s.onerror = () => { _echartsReady = null; reject(new Error("echarts.min.js load failed")); };
+      document.head.appendChild(s);
+    });
+  }
+  return _echartsReady;
+}
+function ensureGraph2D() {
+  // v5.8perf: graph-2d 只有图谱页需要，改懒加载省 47KB 首屏；token 捡取同 ensureEcharts
+  if (window.Graph2D) return Promise.resolve(true);
+  if (!window._graph2dReady) {
+    window._graph2dReady = new Promise((resolve) => {
+      const s = document.createElement("script");
+      const _atok = new URLSearchParams(location.search).get("asset_token") || "";
+      s.src = "graph-2d.js" + (_atok ? "?asset_token=" + encodeURIComponent(_atok) : "");
+      s.onload = () => resolve(!!window.Graph2D);
+      s.onerror = () => { window._graph2dReady = null; resolve(false); };
+      document.head.appendChild(s);
+    });
+  }
+  return window._graph2dReady;
+}
 
 createApp({
   data() {
@@ -2595,6 +2713,15 @@ createApp({
     this._heartbeatActive = true;
     this._heartbeatTimer = null;
     this._scheduleHeartbeat(3000);
+    // v5.8perf: 标签页隐藏 → 暂停心跳轮询（后台零空转）；回到前台 → 立即恢复
+    this._visHandler = () => {
+      if (document.hidden) {
+        if (this._heartbeatTimer) { clearTimeout(this._heartbeatTimer); this._heartbeatTimer = null; }
+      } else if (this._heartbeatActive) {
+        this._scheduleHeartbeat();
+      }
+    };
+    document.addEventListener("visibilitychange", this._visHandler);
     // 【修复】单一全局 resize handler 统一管理所有 ECharts 实例，避免反复进出仪表盘时监听器累积泄漏
     this._echartsResize = () => {
       this._charts.forEach(c => { if (c && !c.isDisposed()) c.resize(); });
@@ -2614,6 +2741,7 @@ createApp({
     window.removeEventListener("hashchange", this.onHash);
     this._heartbeatActive = false;
     if (this._heartbeatTimer) { clearTimeout(this._heartbeatTimer); this._heartbeatTimer = null; }
+    if (this._visHandler) { document.removeEventListener("visibilitychange", this._visHandler); this._visHandler = null; }
     if (this._echartsResize) window.removeEventListener("resize", this._echartsResize);
     if (this._themeObs) { this._themeObs.disconnect(); this._themeObs = null; }
     this._charts.forEach(c => { if (c && !c.isDisposed()) c.dispose(); });
@@ -3084,9 +3212,10 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
       } catch(e) { console.error('[TierDetails] error:', e); }
       this.tierDetailLoading = false;
     },
-    renderConfidenceChart() {
+    async renderConfidenceChart() {
       const el = document.getElementById("confidence-chart");
-      if (!el || !window.echarts) return;
+      if (!el) return;
+      await ensureEcharts();
       // 用 importance 分布模拟数据（基于现有统计）
       const chart = echarts.init(el);
       const bins = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
@@ -3183,10 +3312,14 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
       if (interval == null) {
         const busy = this.sysInfo.dream_stage && this.sysInfo.dream_stage !== "idle";
         interval = (busy || this.route === "dashboard") ? 3000 : 15000;
+        // v5.6+: 连续失败退避——后端不可达时指数拉长（最高 60s），恢复后立即复位
+        const fails = this._hbFails || 0;
+        if (fails >= 1) interval = Math.min(60000, 3000 * Math.pow(2, fails - 1));
       }
       if (this._heartbeatTimer) clearTimeout(this._heartbeatTimer);
       this._heartbeatTimer = setTimeout(async () => {
-        await this.loadSystemInfo();
+        const ok = await this.loadSystemInfo();
+        this._hbFails = ok === false ? (this._hbFails || 0) + 1 : 0;
         // 每10秒检查一次待读通知
         const now = Date.now();
         if (now - (this._lastNotifCheck || 0) > 10000) {
@@ -3232,50 +3365,45 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
           this.toast("✅ 梦境清洗完成！", "success");
           this.loadData(); // 清洗完成后刷新数据
         }
+        return true; // v5.6+: 心跳健康标志（供退避计数）
       }
+      return false;
     },
     async loadData() {
-      const d = await this.api("stats");
-      this.stats.total = d.total_memories || 0;
-      this.stats.today = d.today_count || 0;
-      this.stats.lessons = d.total_lessons || 0;
-
-      const t = await this.api("tags/stats");
-      if (t.tags) this.tags = t.tags.slice(0, 15);
-
-      const r = await this.api("memories", { limit: "6" });
-      if (r.memories) this.recentMems = r.memories;
-
-      // P0: 归并建议（旧版）
-      try {
-        const ac = await this.api("archive/candidates");
-        this.archiveCandidates = (ac && ac.candidates) ? ac.candidates : [];
-      } catch(e) { this.archiveCandidates = []; }
+      // v5.6+: 8 请求并行化（原串行瀑布 → allSettled，单点失败不拖累整体）
+      const [dR, tR, rR, acR, stR, swR, seR, tdR] = await Promise.allSettled([
+        this.api("stats"),
+        this.api("tags/stats"),
+        this.api("memories", { limit: "6" }),
+        this.api("archive/candidates"),
+        this.api("sentiment/trend", { days: "14" }),
+        this.api("sentiment/words", { days: "30", limit: "25" }),
+        this.api("sentiment/events", { days: "14", limit: "20" }),
+        this.api("stats/trend", { days: "90" })
+      ]);
+      const d = dR.status === "fulfilled" ? dR.value : null;
+      if (d) {
+        this.stats.total = d.total_memories || 0;
+        this.stats.today = d.today_count || 0;
+        this.stats.lessons = d.total_lessons || 0;
+      }
+      const t = tR.status === "fulfilled" ? tR.value : null;
+      if (t && t.tags) this.tags = t.tags.slice(0, 15);
+      const r = rR.status === "fulfilled" ? rR.value : null;
+      if (r && r.memories) this.recentMems = r.memories;
+      const ac = acR.status === "fulfilled" ? acR.value : null;
+      this.archiveCandidates = (ac && ac.candidates) ? ac.candidates : [];
+      const st = stR.status === "fulfilled" ? stR.value : null;
+      this.sentimentTrendData = (st && st.trend) ? st.trend : [];
+      const sw = swR.status === "fulfilled" ? swR.value : null;
+      this.emotionWords = (sw && sw.words) ? sw.words : [];
+      const se = seR.status === "fulfilled" ? seR.value : null;
+      this.sentimentEvents = (se && se.events) ? se.events : [];
+      const td = tdR.status === "fulfilled" ? tdR.value : null;
+      this.heatmapData = (td && td.trend) ? td.trend : [];
 
       // P1-1: 智能归并（异步加载相似对，不阻塞）
       this.loadSimilarPairs();
-
-      // P0: 情感趋势
-      try {
-        const st = await this.api("sentiment/trend", { days: "14" });
-        this.sentimentTrendData = (st && st.trend) ? st.trend : [];
-      } catch(e) { this.sentimentTrendData = []; }
-
-      // v5.8: 情感词云 + 强情感事件
-      try {
-        const sw = await this.api("sentiment/words", { days: "30", limit: "25" });
-        this.emotionWords = (sw && sw.words) ? sw.words : [];
-      } catch(e) { this.emotionWords = []; }
-      try {
-        const se = await this.api("sentiment/events", { days: "14", limit: "20" });
-        this.sentimentEvents = (se && se.events) ? se.events : [];
-      } catch(e) { this.sentimentEvents = []; }
-
-      // P0: 热力图数据 (复用 trend 数据)
-      try {
-        const td = await this.api("stats/trend", { days: "90" });
-        this.heatmapData = (td && td.trend) ? td.trend : [];
-      } catch(e) { this.heatmapData = []; }
 
       if (this.route === "dashboard") {
         this.$nextTick(() => { this.renderCharts(); });
@@ -3468,7 +3596,9 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
    // ━━━ 图谱 ━━━
    async loadGraph() {
       console.log("[GraphDebug] loadGraph 开始");
-      if (!window.Graph2D) { console.warn("[GraphDebug] Graph2D 未加载!"); return; }
+      if (!window.Graph2D) {
+        if (!(await ensureGraph2D())) { console.warn("[GraphDebug] Graph2D 加载失败!"); return; }
+      }
       const el = document.getElementById("graph-canvas");
       if (!el) { console.warn("[GraphDebug] #graph-canvas 元素不存在!"); return; }
       var rect = el.getBoundingClientRect();
@@ -3696,9 +3826,10 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
       } catch(e) { console.warn("[Charts] 情感趋势图渲染失败:", e.message); }
     },
     // 【修复】统一挂载 ECharts：先 dispose 旧实例并从 _charts 移除，新建后登记，由单一全局 resize handler 管理
-    _mountChart(elId, option) {
+    async _mountChart(elId, option) {
       const el = document.getElementById(elId);
-      if (!el || !window.echarts) return;
+      if (!el) return;
+      await ensureEcharts();
       const old = echarts.getInstanceByDom(el);
       if (old) {
         echarts.dispose(el);

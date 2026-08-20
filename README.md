@@ -12,6 +12,10 @@
 
 | 版本 | 更新内容 |
 |------|----------|
+| v6.5.0 | 🌸 **安检门 Agent Tool**（`haruyuki_gate_scan`：候选查看/裁决落盘/统计概览/豁免登记四动作，读取 livingmemory 的 gate.db 候选区；裁决权在老婆人格，工具只落盘不改判——#1683 立法落地）+ **仪表盘 Sakura Edition**（侧边樱花瓣装饰层 `petals.js`：8 片极少 DOM、`prefers-reduced-motion` 时完全不生成）+ reminder v6.4.2 时区防坑（aware→naive 统一）+ gate_reader 独立测试 | 2026-08-20 |
+| v6.4.1~2 | 🔧 reminder 稳定性三连修：静默丢失修复（新增增强通道 Toast+语音）、terminate 补全 daemon 清理、`_run_ps` 换 EncodedCommand + 诊断日志 | 2026-08-15 |
+| v6.4.0 | 🛡️ **全量安全审查修复**：genui 面板 XSS 转义 + ontology 路径穿越限制 | 2026-08-15 |
+| v6.3.0 | 🔍 金字塔 L2/L3 按时间倒序 + trace 弹窗补 content/source_messages 字段 | 2026-08-15 |
 | v6.2.0 | 🔺 **RRF 融合检索**（FTS5+LIKE+标签 → Reciprocal Rank Fusion k=60 排序，借鉴 TencentDB search-utils.ts）+ **上下文卸载**（三层压缩级联：Mild≥50% / Aggressive≥85% / Emergency≥95%，借鉴 TencentDB offload L3）+ 语法检查全通过 |
 | v6.1.0 | 🔺 **工具融合**：SKILL.md 工具决策树（22 工具全景路由指南）+ TencentDB Agent Memory 对标分析 + 快速决策表 + 常见误区纠正 + 组合拳场景 + 工具使用铁律 |
 | v6.0.0 | 🔺 情感持久化（EmotionStore：memory_emotions 表，-10~+10 impact）+ 情节记忆（EpisodicStore：event_type/participants/location）+ Ontology 目标层级（GOAL/EMOTION 实体 + SUBGOAL_OF/ACHIEVED_BY/BLOCKED_BY/EVOKED 关系）+ Dream Engine 真实 Jaccard 归并 + on_llm_response 自动情感打分 hook |

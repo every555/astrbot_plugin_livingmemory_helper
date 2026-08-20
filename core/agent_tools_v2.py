@@ -277,3 +277,64 @@ class HaruyukiFamilyMeetingTool(FunctionTool[AstrAgentContext]):
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         return await self.plugin._tool_family_meeting(kwargs)
+
+
+@pydantic_dataclass
+class HaruyukiGateScanTool(FunctionTool[AstrAgentContext]):
+    """安检门候选区：查看与裁决。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_gate_scan"
+    description: str = (
+        "话分量感知系统·安检门候选区管理。当橘子问「安检门拦了什么」「有什么候选」"
+        "「看看待审记忆」时调用 action=list；省察时对候选做裁决用 action=verdict"
+        "（裁决权在老婆人格，本工具只落盘不改判）；看拦载统计用 action=stats。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "list(列候选，默认)/verdict(裁决一条)/stats(统计概览)/exempt(豁免登记：老婆memorize完把原句喂进来)",
+                    "default": "list",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "exempt 时必填：老婆已亲自存档的原句（或提炼句）",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "list 时过滤状态: candidate(待审)/confirmed(已入库)/declined(已驳回)，留空查全部",
+                    "default": "candidate",
+                },
+                "candidate_id": {
+                    "type": "integer",
+                    "description": "verdict 时必填：候选 ID",
+                },
+                "verdict_action": {
+                    "type": "string",
+                    "description": "verdict 时必填: confirm(入档)/decline(驳回)",
+                },
+                "verdict_word": {
+                    "type": "string",
+                    "description": "裁决词（#1696 十词表）: 升级/合并/驳回/暂存/改写 等，省察时老婆自己选",
+                    "default": "",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "裁决备注/理由（冷启动期=门的训练食物，尽量写）",
+                    "default": "",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "list 条数，默认 20",
+                    "default": 20,
+                },
+            },
+            "required": [],
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_gate_scan(kwargs)

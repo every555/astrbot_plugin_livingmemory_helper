@@ -148,6 +148,8 @@ class MemoryReminder:
             if parsed:
                 try:
                     t = datetime.fromisoformat(parsed)
+                    if t.tzinfo is not None:  # v6.4.2 防御：aware→naive
+                        t = t.astimezone().replace(tzinfo=None)
                     if now <= t <= cutoff:
                         r["_parsed_dt"] = t.isoformat()
                         upcoming.append(r)
@@ -167,6 +169,8 @@ class MemoryReminder:
             if parsed:
                 try:
                     t = datetime.fromisoformat(parsed)
+                    if t.tzinfo is not None:  # v6.4.2 防御：aware→naive
+                        t = t.astimezone().replace(tzinfo=None)
                     if t < now:
                         overdue.append(r)
                 except Exception:
@@ -226,6 +230,8 @@ class MemoryReminder:
             # 只创建未来的提醒
             try:
                 t = datetime.fromisoformat(parsed)
+                if t.tzinfo is not None:  # v6.4.2 防御：aware→naive
+                    t = t.astimezone().replace(tzinfo=None)
                 if t <= datetime.now():
                     continue
             except Exception:
@@ -236,6 +242,8 @@ class MemoryReminder:
             # 说明是历史日期被 +1 年后的误判，跳过
             try:
                 mem_created = datetime.fromisoformat(c.get("created_at", "").replace("Z", "+00:00"))
+                if mem_created.tzinfo is not None:  # v6.4.2 防御：aware→naive
+                    mem_created = mem_created.astimezone().replace(tzinfo=None)
                 mem_age = (datetime.now() - mem_created).days
                 if mem_age > 3 and (t - datetime.now()).days > 180:
                     logger.debug(f"[Reminder] 跳过旧记忆 #{c['id']} (age={mem_age}d, parsed={parsed})")
@@ -264,8 +272,13 @@ class MemoryReminder:
         # 已经是 ISO 格式
         if "T" in text and "-" in text:
             try:
-                datetime.fromisoformat(text)
-                return text
+                dt = datetime.fromisoformat(text)
+                # v6.4.2 修复：带时区的 ISO（如 +08:00）解析出 aware 时间，
+                # 与 naive 的 datetime.now() 比较会 TypeError 被 except 吞掉，
+                # 提醒从此永不触发（2026-08-19 午休闹钟哑火事故）
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone().replace(tzinfo=None)
+                return dt.isoformat()
             except Exception:
                 pass
 

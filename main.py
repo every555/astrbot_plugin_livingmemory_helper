@@ -48,6 +48,7 @@ from .core.agent_tools_v2 import (
     HaruyukiExpressionTool,
     HaruyukiFamilyStatusTool,
     HaruyukiFamilyMeetingTool,
+    HaruyukiGateScanTool,
 )
 from .utils.v2_reader import V2Reader
 from .core.ontology import (
@@ -98,6 +99,7 @@ class Main(star.Star):
         self._plugin_load_time = __import__('time').time()  # v4.3: 用于前端检测插件重载
         self._last_msg_origin = None  # 保存最近的unified_msg_origin用于主动推送
         self._recall_cache = {}  # v5.0: 语义召回缓存 {query_hash: (timestamp, results)}
+        self._gate_reader = None  # 安检门候选区读取器（惰性，gate.db 在本体 data_dir）
 
         # ━━━ v4.0: Agent Tools（弱引用代理，斩断热重载内存泄漏）━━━
         self.agent_tools_impl = AgentToolImplementations(self.reader)
@@ -130,6 +132,7 @@ class Main(star.Star):
                 HaruyukiExpressionTool(plugin=weakref.proxy(self)),
                 HaruyukiFamilyStatusTool(plugin=weakref.proxy(self)),
                 HaruyukiFamilyMeetingTool(plugin=weakref.proxy(self)),
+                HaruyukiGateScanTool(plugin=weakref.proxy(self)),
             )
             logger.info("[LMHelper v6.0] v2.0 7 Agent Tools 已注册：causal_chain | conflict_check | profile | prophecy | expression | family_status | family_meeting")
         except Exception as e:
@@ -1339,6 +1342,85 @@ class Main(star.Star):
             lines.append("（暂未发现关联的前因/后果节点）")
         return chr(10).join(lines)
 
+    def _get_gate_reader(self):
+        """安检门候选区读取器（惰性初始化；门没开过业就返回 None）。"""
+        if self._gate_reader is None:
+            try:
+                gate_db = os.path.join(
+                    os.getcwd(), "data", "plugin_data",
+                    "astrbot_plugin_livingmemory", "gate.db",
+                )
+                if os.path.exists(gate_db):
+                    from .core.gate_reader import GateReader
+                    self._gate_reader = GateReader(gate_db)
+            except Exception as e:
+                logger.warning(f"安检门读取器初始化失败: {e}")
+        return self._gate_reader
+
+    async def _tool_gate_scan(self, kwargs: dict) -> str:
+        """Agent Tool: 安检门候选区 查看/裁决/统计（#1683 第5步 / #1700 消费者定位）"""
+        gr = self._get_gate_reader()
+        if gr is None:
+            return "安检门还没开过业（gate.db 不存在）——等橘子下一条消息过秤后自动创建。"
+
+        action = kwargs.get("action", "list") or "list"
+
+        if action == "stats":
+            s = gr.stats()
+            return (
+                f"【安检门·拦载统计】总数 {s['total']}｜待审 {s['candidate']}"
+                f"｜已入库 {s['confirmed']}｜已驳回 {s['declined']}"
+                f"｜flashbulb 预标升级 {s['flashbulb_flagged']}"
+            )
+
+        if action == "exempt":
+            content = kwargs.get("content", "") or ""
+            texts = kwargs.get("texts") or ([content] if content else [])
+            texts = [t for t in (texts if isinstance(texts, list) else [texts]) if t]
+            if not texts:
+                return "豁免登记需要 content（原句）或 texts（多段列表）。"
+            n = gr.mark_memorized(texts)
+            return f"【豁免登记】已登记 {n} 条指纹——安检门后续拦下它们的原句/近似句（absorbed 留痕），不再进候选区，省察不重复劳动。"
+
+        if action == "verdict":
+            cid = int(kwargs.get("candidate_id", 0) or 0)
+            v_action = (kwargs.get("verdict_action") or "").strip()
+            if not cid or v_action not in ("confirm", "decline"):
+                return "裁决需要 candidate_id 和 verdict_action(confirm/decline)。"
+            ok = gr.verdict(
+                cid, action=v_action,
+                verdict_word=kwargs.get("verdict_word", "") or "",
+                note=kwargs.get("note", "") or "",
+            )
+            if not ok:
+                return f"裁决失败：候选 {cid} 不存在或库不可写。"
+            word = kwargs.get("verdict_word", "") or v_action
+            ret = f"候选 {cid} 已裁决：{'入档' if v_action == 'confirm' else '驳回'}（{word}）。下一单。"
+            if v_action == "confirm":
+                learned = gr.learned_report(limit=5)
+                if learned:
+                    parts = [f"{r['word']}x{r['count']}" + ("[已毕业]" if r["graduated"] else "") for r in learned]
+                    ret += "\n【词表学习】" + "、".join(parts) + "（毕业词重载本体后并入高权级）"
+            return ret
+
+        # 默认 list
+        status = kwargs.get("status") or "candidate"
+        limit = int(kwargs.get("limit", 20) or 20)
+        rows = gr.list_candidates(status=status if status != "all" else None, limit=limit)
+        if not rows:
+            return "候选区空空如也——门在正常放行低分句，或都审完了。"
+        label = {"candidate": "待审", "confirmed": "已入库", "declined": "已驳回", "all": "全部"}.get(status, status)
+        lines = [f"【安检门候选 · {label}】共 {len(rows)} 条"]
+        for r in rows:
+            flag = " ⚡预标升级" if r.get("verdict") == "升级" else ""
+            rep = f" ×{r.get('repeat_count', 1)}" if r.get("repeat_count", 1) > 1 else ""
+            content = " ".join((r["content"] or "").split())[:60]
+            lines.append(
+                f"  #{r['id']} [{r['speaker']}] {r['score']:.2f}{rep}{flag}｜{content}"
+            )
+        lines.append("裁决：action=verdict + candidate_id + verdict_action(confirm/decline) + verdict_word + note")
+        return chr(10).join(lines)
+
     async def _tool_conflict_check(self, kwargs: dict) -> str:
         """Agent Tool: v2.0 冲突记录查询"""
         if not self.v2_reader:
@@ -1354,7 +1436,11 @@ class Main(star.Star):
         for r in rows:
             lv = r.get("level", 1)
             lines.append(f"- [{level_name.get(lv, f'L{lv}')}] 新#{r['new_memory_id']}: {r.get('new_content','')[:40]}")
-            lines.append(f"  vs 旧#{r['old_memory_id']}: {r.get('old_content','')[:40]}")
+            if r.get("conflict_type") == "profile" or not r.get("old_memory_id"):
+                old_label = "画像特征"
+            else:
+                old_label = f"旧#{r['old_memory_id']}"
+            lines.append(f"  vs {old_label}: {r.get('old_content','')[:40]}")
             lines.append(f"  原因: {r.get('reason','')[:60]} (置信度 {r.get('confidence',0):.2f}, {r.get('status','')})")
         return chr(10).join(lines)
 
