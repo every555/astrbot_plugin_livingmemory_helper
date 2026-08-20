@@ -142,12 +142,17 @@ class LivingMemoryReader:
             return False
 
     def _t3_search(self, conn, query, limit):
-        """trigram 检索（子串语义，查询需>=3字）。返回按 bm25 排序的 id 列表。"""
+        """trigram 检索（子串语义，查询需>=3字）。返回按 bm25 排序的 id 列表。
+
+        引号转义: 查询含半角引号时裸 MATCH 会炸(unterminated string)，
+        标准解法=双写引号后整串包裹成 FTS5 字符串字面量（同上游 bm25_retriever）。
+        """
         try:
+            safe_q = '"' + query.replace('"', '""') + '"'
             rows = conn.execute(
                 f"SELECT d.id FROM documents d INNER JOIN {self.T3_TABLE} f ON f.rowid = d.rowid "
                 f"WHERE {self.T3_TABLE} MATCH ? ORDER BY rank LIMIT ?",
-                (query, limit),
+                (safe_q, limit),
             ).fetchall()
             return [r["id"] for r in rows]
         except Exception:

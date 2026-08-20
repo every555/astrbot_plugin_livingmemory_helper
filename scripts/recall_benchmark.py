@@ -25,9 +25,10 @@ def fts_search(conn, query, limit):
     if len(query) < 3:
         return []
     try:
+        safe_q = '"' + query.replace('"', '""') + '"'
         rows = conn.execute(
             "SELECT d.id FROM documents d INNER JOIN lmem_fts_t3 f ON f.rowid = d.rowid "
-            "WHERE lmem_fts_t3 MATCH ? ORDER BY rank LIMIT ?", (query, limit)).fetchall()
+            "WHERE lmem_fts_t3 MATCH ? ORDER BY rank LIMIT ?", (safe_q, limit)).fetchall()
         return [r["id"] for r in rows]
     except Exception:
         return []
