@@ -12,6 +12,7 @@
 
 | 版本 | 更新内容 |
 |------|----------|
+| v6.5.2 | 🔧 **双修复**：① **FTS5 中文检索复活**——并行自建 `lmem_fts_t3`(trigram) 索引（不碰主插件 unicode61 表，惰性增量同步），中文子串命中 0%→100%，P95 1.1ms（较 LIKE 路 9.6ms 快 9 倍）；② **Tier 软融合**——`tier_mode` 三模式（soft 默认：final=相关性+0.35×新鲜度，高相关老记忆不再被 tier 压死 / hard 原硬排序 / off 纯相关性），`tier_blend_weight` 可调 | 2026-08-20 |
 | v6.5.1 | 📊 **召回质量基准脚本**（`scripts/recall_benchmark.py`：分层抽样→伪查询→四策略对比 Hit@k/MRR/P95，全程只读零副作用；借鉴上游 PersonaMem 评测思路的本地无 LLM 版）+ **基准首跑两个发现**：① FTS5 unicode61 对中文片段命中率 0%（索引 1132 行全在但查不中，线上实际 LIKE 单腿扛）② Tier 排序碾压 RRF 分数（MRR 0.989 vs 0.947）+ **检索参数配置化**（retrieval_tuning 组：rrf_k / over_sample_ratio / enable_fts / tier_priority_sort 四参数面板可调，默认=原线上行为，含类型防护） | 2026-08-20 |
 | v6.5.0 | 🌸 **安检门 Agent Tool**（`haruyuki_gate_scan`：候选查看/裁决落盘/统计概览/豁免登记四动作，读取 livingmemory 的 gate.db 候选区；裁决权在老婆人格，工具只落盘不改判——#1683 立法落地）+ **仪表盘 Sakura Edition**（侧边樱花瓣装饰层 `petals.js`：8 片极少 DOM、`prefers-reduced-motion` 时完全不生成）+ reminder v6.4.2 时区防坑（aware→naive 统一）+ gate_reader 独立测试 | 2026-08-20 |
 | v6.4.1~2 | 🔧 reminder 稳定性三连修：静默丢失修复（新增增强通道 Toast+语音）、terminate 补全 daemon 清理、`_run_ps` 换 EncodedCommand + 诊断日志 | 2026-08-15 |

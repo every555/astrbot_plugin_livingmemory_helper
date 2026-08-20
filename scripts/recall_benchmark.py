@@ -21,18 +21,13 @@ con.row_factory = sqlite3.Row
 TIER_W = {0: 1000, 1: 100, 2: 10, 3: 1}
 
 def fts_search(conn, query, limit):
-    """FTS5 路（复刻线上：精确 -> 前缀兜底），livingmemory_memories_fts 优先"""
-    table, join = "livingmemory_memories_fts", "f.doc_id = d.id"
+    """FTS5 路 v6.5.2: lmem_fts_t3 (trigram)——子串语义，查询需>=3字"""
+    if len(query) < 3:
+        return []
     try:
         rows = conn.execute(
-            f"SELECT d.id FROM documents d INNER JOIN {table} f ON ({join}) "
-            f"WHERE {table} MATCH ? ORDER BY rank LIMIT ?", (query, limit)).fetchall()
-        if not rows:
-            tokens = query.replace('"', '').split()
-            pq = f'"{query}"*' if len(tokens) == 1 else " ".join(t + "*" for t in tokens)
-            rows = conn.execute(
-                f"SELECT d.id FROM documents d INNER JOIN {table} f ON ({join}) "
-                f"WHERE {table} MATCH ? ORDER BY rank LIMIT ?", (pq, limit)).fetchall()
+            "SELECT d.id FROM documents d INNER JOIN lmem_fts_t3 f ON f.rowid = d.rowid "
+            "WHERE lmem_fts_t3 MATCH ? ORDER BY rank LIMIT ?", (query, limit)).fetchall()
         return [r["id"] for r in rows]
     except Exception:
         return []
@@ -91,13 +86,13 @@ samples = samples[:SAMPLE_N]
 print(f"抽样 {len(samples)} 条（分 {len(tiers)} 层 tier）")
 
 # ── 3. 四策略跑分 ──
-strategies = {"FTS5单路": [], "LIKE单路": [], "RRF融合": [], "RRF+Tier(线上)": []}
+strategies = {"FTS5-trigram单路": [], "LIKE单路": [], "RRF融合": [], "RRF+Tier(线上)": []}
 lat = {k: [] for k in strategies}
 
 for did, q, tier in samples:
     for name in strategies:
         t0 = time.perf_counter()
-        if name == "FTS5单路":
+        if name == "FTS5-trigram单路":
             ids = fts_search(con, q, 30)
             ranked = {i: 1.0/(60+j+1) for j, i in enumerate(ids)}
         elif name == "LIKE单路":

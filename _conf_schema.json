@@ -169,15 +169,26 @@
             },
             "enable_fts": {
                 "description": "FTS5 全文检索路开关",
-                "hint": "2026-08-20 基准实测：unicode61 tokenizer 对中文片段命中率为 0%（索引 1132 行全在但查不中），目前全靠 LIKE 路。关闭可省两次空查询；等主插件 FTS 换 trigram 后可重新打开。",
+                "hint": "v6.5.2 已修复中文检索：helper 自建 lmem_fts_t3 (trigram) 并行索引，中文子串可命中，基准 100% Hit@5 / P95 1.1ms（LIKE 路 9.6ms）。关闭则仅 LIKE 路。主插件的 unicode61 表不受影响。",
                 "type": "bool",
                 "default": true
             },
-            "tier_priority_sort": {
-                "description": "Tier 优先级二次排序",
-                "hint": "开=L0>L1>L2>L3 碾压相关性分（线上原行为）；关=纯 RRF 相关性排序（老记忆不再被 tier 压住）。基准 MRR：开 0.989 / 关 0.947。",
-                "type": "bool",
-                "default": true
+            "tier_mode": {
+                "description": "Tier 影响模式",
+                "hint": "soft(默认)=软融合：相关性为主、新鲜度为辅（final = 相关性 + 0.35×新鲜度），高相关老记忆不再被压死；hard=硬排序（v6.5.1 前原行为，tier 碾压相关性）；off=纯相关性。基准 MRR：hard 0.989 / off 0.947。",
+                "type": "string",
+                "default": "soft",
+                "options": [
+                    "soft",
+                    "hard",
+                    "off"
+                ]
+            },
+            "tier_blend_weight": {
+                "description": "soft 模式新鲜度权重",
+                "hint": "仅 tier_mode=soft 时生效。0=不看新鲜度，1=新鲜度与相关性同权。默认 0.35。",
+                "type": "float",
+                "default": 0.35
             }
         }
     }

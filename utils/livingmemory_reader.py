@@ -110,6 +110,49 @@ class LivingMemoryReader:
         except Exception as e:
             logger.warning(f"[LMHelper v6.0] FTS5 初始化跳过（表可能已存在或无权限）: {e}")
 
+    # ── v6.5.2: trigram 并行 FTS 表（helper 自有资产，不碰主插件的 livingmemory_memories_fts）──
+    # 背景: 主插件 FTS 用 unicode61，整段中文算一个 token，子串查询命中 0%（2026-08-20 基准实测）。
+    # 方案: 并行建 lmem_fts_t3 (trigram)，检索前惰性增量同步（查 id 差集补漏，毫秒级）。
+    T3_TABLE = "lmem_fts_t3"
+
+    def _ensure_t3(self, conn):
+        """确保 t3 表存在且与 documents 同步。返回 True=可用。"""
+        try:
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (self.T3_TABLE,)
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    f"CREATE VIRTUAL TABLE {self.T3_TABLE} USING fts5("
+                    f"content, doc_id UNINDEXED, tokenize='trigram')"
+                )
+            # 惰性增量同步: 主插件没有 TRIGGER，应用层写 documents，这里查差补漏
+            max_doc = conn.execute("SELECT COALESCE(MAX(rowid),0) FROM documents").fetchone()[0]
+            max_t3 = conn.execute(f"SELECT COALESCE(MAX(rowid),0) FROM {self.T3_TABLE}").fetchone()[0]
+            if max_t3 < max_doc:  # 有落后 → 补（rowid 对齐 documents 的插入序）
+                conn.execute(
+                    f"INSERT INTO {self.T3_TABLE}(rowid, content, doc_id) "
+                    f"SELECT d.rowid, d.text, d.id FROM documents d WHERE d.rowid > ? AND d.rowid <= ?",
+                    (max_t3, max_doc)
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"[LMHelper v6.5.2] t3 同步跳过: {e}")
+            return False
+
+    def _t3_search(self, conn, query, limit):
+        """trigram 检索（子串语义，查询需>=3字）。返回按 bm25 排序的 id 列表。"""
+        try:
+            rows = conn.execute(
+                f"SELECT d.id FROM documents d INNER JOIN {self.T3_TABLE} f ON f.rowid = d.rowid "
+                f"WHERE {self.T3_TABLE} MATCH ? ORDER BY rank LIMIT ?",
+                (query, limit),
+            ).fetchall()
+            return [r["id"] for r in rows]
+        except Exception:
+            return []
+
     def _parse_meta(self, metadata_str: str) -> dict:
         if not metadata_str:
             return {}
@@ -378,6 +421,8 @@ class LivingMemoryReader:
         """
         conn = self._connect()
         lists = []
+        if self._cfg_get("enable_fts", True):
+            self._ensure_t3(conn)  # v6.5.2: 惰性同步 trigram 并行索引
 
         # ── 路径 1: FTS5 BM25（v6.5 可配置关闭：当前 unicode61 对中文长片段命中率为 0，
         #    基准报告 2026-08-20；关闭后省两次空查询，LIKE 扛检索）──
@@ -407,6 +452,19 @@ class LivingMemoryReader:
         if not fts_table and self._fts_column_exists(conn):
             fts_table = "documents_fts"
             fts_join_col = "doc_id"
+
+        # ── v6.5.2 路径 0: trigram 并行表（中文子串可命中；查询>=3字才有效，短查询交给 LIKE）──
+        if len(query) >= 3:
+            t3_ids = self._t3_search(conn, query, limit)
+            if t3_ids:
+                rows = conn.execute(
+                    f"SELECT *, memory_tier as tier FROM documents WHERE id IN "
+                    f"({','.join('?' * len(t3_ids))})",
+                    t3_ids,
+                ).fetchall()
+                # 保持 bm25 名次顺序
+                by_id = {r["id"]: self._format_row(dict(r)) for r in rows}
+                lists.append(("t3-trigram", [by_id[i] for i in t3_ids if i in by_id]))
 
         if fts_table:
             try:
@@ -482,8 +540,10 @@ class LivingMemoryReader:
                 f"{len(results)} 条"
             )
         elif len(strategy_lists) == 1:
-            # 单路命中（另一路没结果）
+            # 单路命中（另一路没结果）——按名次补 _rrf_score，供 soft 融合排序用
             results = strategy_lists[0][1][:over_retrieve]
+            for _i, _r in enumerate(results):
+                _r.setdefault("_rrf_score", 1.0 / (60 + _i + 1))
         else:
             # 全部失败 → LIKE 终极兜底
             conn = self._connect()
@@ -498,8 +558,12 @@ class LivingMemoryReader:
         if not results:
             return []
 
-        # ── Tier 优先级二次排序：L0 > L1 > L2 > L3（v6.5 可配置关闭→纯 RRF 相关性排序）──
-        if self._cfg_get("tier_priority_sort", True):
+        # ── v6.5.2: Tier 影响三模式 ──
+        # hard=字典序硬排序（原行为，tier 碾压相关性）| soft=软融合（默认，相关性为主 tier 为辅）| off=纯相关性
+        # soft 公式: final = rrf_norm + w * tier_norm （w=tier_blend_weight，默认 0.35）
+        #           高相关的老记忆可以反超低相关的新记忆，但同等相关时新鲜记忆优先——修"老记忆被压死"
+        mode = self._cfg_get("tier_mode", "soft")
+        if mode == "hard":
             tier_weight = {0: 1000, 1: 100, 2: 10, 3: 1}
             results.sort(
                 key=lambda r: (
@@ -508,8 +572,15 @@ class LivingMemoryReader:
                 ),
                 reverse=True,
             )
-        else:
+        elif mode == "off":
             results.sort(key=lambda r: r.get("_rrf_score", 0), reverse=True)
+        else:  # soft
+            max_s = max((r.get("_rrf_score", 0.0) for r in results), default=0.0) or 1.0
+            w = self._cfg_get("tier_blend_weight", 0.35)
+            tn = {0: 1.0, 1: 0.66, 2: 0.33, 3: 0.0}
+            for r in results:
+                r["_final"] = r.get("_rrf_score", 0.0) / max_s + w * tn.get(r.get("tier", 3), 0.0)
+            results.sort(key=lambda r: r.get("_final", 0.0), reverse=True)
         results = results[:limit]
 
         # ── 访问追踪 ──
