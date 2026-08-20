@@ -80,7 +80,7 @@ class Main(star.Star):
         )
         os.makedirs(data_dir, exist_ok=True)
 
-        self.reader = LivingMemoryReader(db_path)
+        self.reader = LivingMemoryReader(db_path, config=(config or {}).get("retrieval_tuning") or {})
         self.learner = ErrorLearner(self.reader, data_dir)
         self.knowledge_graduator = KnowledgeGraduator(self.learner, self.reader, data_dir)
         self.emotion_engine = EmotionEngine()  # v5.6: 上下文感知情感引擎

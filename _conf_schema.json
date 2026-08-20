@@ -1,153 +1,184 @@
 {
-  "embedding_api_key": {
-    "type": "string",
-    "default": "",
-    "description": "API Key（用于冲突检测向量生成）"
-  },
-  "embedding_api_base": {
-    "type": "string",
-    "default": "https://api.deepseek.com/v1",
-    "description": "API Base 地址"
-  },
-  "embedding_model": {
-    "type": "string",
-    "default": "deepseek-v4-flash",
-    "description": "冲突检测使用的模型（可用 deepseek-v4-flash / deepseek-v4-pro）"
-  },
-  "auto_scan_enabled": {
-    "type": "bool",
-    "default": false,
-    "description": "是否启动时自动开启记忆时间词扫描"
-  },
-  "auto_inject_lessons": {
-    "type": "bool",
-    "default": true,
-    "description": "每次对话前自动注入相关的错误教训"
-  },
-  "max_lessons_per_inject": {
-    "type": "int",
-    "default": 2,
-    "description": "每次注入的最大教训条数"
-  },
-  "rrf_k": {
-    "type": "int",
-    "default": 60,
-    "description": "RRF 排序融合参数，越大越平滑"
-  },
-  "document_route_weight": {
-    "type": "float",
-    "default": 0.65,
-    "description": "文档检索路由的权重 (0-1)"
-  },
-  "graph_route_weight": {
-    "type": "float",
-    "default": 0.35,
-    "description": "图谱检索路由的权重 (0-1)"
-  },
-  "decay_rate": {
-    "type": "float",
-    "default": 0.01,
-    "description": "记忆重要性的日衰减率"
-  },
-  "cleanup_days_threshold": {
-    "type": "int",
-    "default": 30,
-    "description": "多少天未访问的记忆可被清理"
-  },
-  "cleanup_importance_threshold": {
-    "type": "float",
-    "default": 0.2,
-    "description": "重要性低于此值的记忆可被清理 (0-1)"
-  },
-  "atom_forget_delay_days": {
-    "type": "float",
-    "default": 18.0,
-    "description": "原子记忆进入遗忘状态的延迟天数"
-  },
-  "atom_purge_delay_days": {
-    "type": "float",
-    "default": 40.0,
-    "description": "原子记忆被彻底清除的延迟天数"
-  },
-  "graph_memory_enabled": {
-    "type": "bool",
-    "default": true,
-    "description": "是否启用知识图谱记忆路由"
-  },
-  "graph_expansion_hops": {
-    "type": "int",
-    "default": 1,
-    "description": "图谱检索的扩展跳数 (1-2)"
-  },
-  "graph_max_topics": {
-    "type": "int",
-    "default": 6,
-    "description": "单次图谱提取的最大主题数"
-  },
-  "recall_top_k": {
-    "type": "int",
-    "default": 5,
-    "description": "检索返回的最大记忆条数"
-  },
-  "recall_max_k": {
-    "type": "int",
-    "default": 10,
-    "description": "检索扩展的最大K值上限"
-  },
-  "summary_trigger_rounds": {
-    "type": "int",
-    "default": 10,
-    "description": "每多少轮对话后触发反思摘要"
-  },
-  "dream_enabled": {
-    "type": "bool",
-    "default": false,
-    "description": "是否启用梦境引擎自动记忆压缩"
-  },
-  "dream_story_time": {
-    "type": "string",
-    "default": "22:30",
-    "description": "每日故事时间"
-  },
-  "dream_bottle_time": {
-    "type": "string",
-    "default": "08:00",
-    "description": "每日漂流瓶时间"
-  },
-  "emotion_enabled": {
-    "type": "bool",
-    "default": true,
-    "description": "是否启用上下文感知情感分析"
-  },
-  "emotion_trend_window": {
-    "type": "int",
-    "default": 6,
-    "description": "趋势分析使用的最近情感条数"
-  },
-  "meme_base_probability": {
-    "type": "int",
-    "default": 80,
-    "description": "吐槽触发的基础概率 0-100"
-  },
-  "meme_neg_adjust_max": {
-    "type": "int",
-    "default": 30,
-    "description": "负面情感时吐槽概率最大降幅"
-  },
-  "meme_pos_adjust_max": {
-    "type": "int",
-    "default": 10,
-    "description": "正面情感时吐槽概率最大增幅"
-  },
-  "meme_serious_adjust_max": {
-    "type": "int",
-    "default": 15,
-    "description": "严肃话题时吐槽概率最大降幅"
-  },
-  "dream_cleaning_enabled": {
-    "type": "bool",
-    "default": true,
-    "description": "启用梦境清洗功能",
-    "hint": "控制是否运行五阶段门控清洗引擎（orient→gather→consolidate→prune→complete）"
-  }
+    "embedding_api_key": {
+        "type": "string",
+        "default": "",
+        "description": "API Key（用于冲突检测向量生成）"
+    },
+    "embedding_api_base": {
+        "type": "string",
+        "default": "https://api.deepseek.com/v1",
+        "description": "API Base 地址"
+    },
+    "embedding_model": {
+        "type": "string",
+        "default": "deepseek-v4-flash",
+        "description": "冲突检测使用的模型（可用 deepseek-v4-flash / deepseek-v4-pro）"
+    },
+    "auto_scan_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "是否启动时自动开启记忆时间词扫描"
+    },
+    "auto_inject_lessons": {
+        "type": "bool",
+        "default": true,
+        "description": "每次对话前自动注入相关的错误教训"
+    },
+    "max_lessons_per_inject": {
+        "type": "int",
+        "default": 2,
+        "description": "每次注入的最大教训条数"
+    },
+    "rrf_k": {
+        "type": "int",
+        "default": 60,
+        "description": "RRF 排序融合参数，越大越平滑"
+    },
+    "document_route_weight": {
+        "type": "float",
+        "default": 0.65,
+        "description": "文档检索路由的权重 (0-1)"
+    },
+    "graph_route_weight": {
+        "type": "float",
+        "default": 0.35,
+        "description": "图谱检索路由的权重 (0-1)"
+    },
+    "decay_rate": {
+        "type": "float",
+        "default": 0.01,
+        "description": "记忆重要性的日衰减率"
+    },
+    "cleanup_days_threshold": {
+        "type": "int",
+        "default": 30,
+        "description": "多少天未访问的记忆可被清理"
+    },
+    "cleanup_importance_threshold": {
+        "type": "float",
+        "default": 0.2,
+        "description": "重要性低于此值的记忆可被清理 (0-1)"
+    },
+    "atom_forget_delay_days": {
+        "type": "float",
+        "default": 18.0,
+        "description": "原子记忆进入遗忘状态的延迟天数"
+    },
+    "atom_purge_delay_days": {
+        "type": "float",
+        "default": 40.0,
+        "description": "原子记忆被彻底清除的延迟天数"
+    },
+    "graph_memory_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "是否启用知识图谱记忆路由"
+    },
+    "graph_expansion_hops": {
+        "type": "int",
+        "default": 1,
+        "description": "图谱检索的扩展跳数 (1-2)"
+    },
+    "graph_max_topics": {
+        "type": "int",
+        "default": 6,
+        "description": "单次图谱提取的最大主题数"
+    },
+    "recall_top_k": {
+        "type": "int",
+        "default": 5,
+        "description": "检索返回的最大记忆条数"
+    },
+    "recall_max_k": {
+        "type": "int",
+        "default": 10,
+        "description": "检索扩展的最大K值上限"
+    },
+    "summary_trigger_rounds": {
+        "type": "int",
+        "default": 10,
+        "description": "每多少轮对话后触发反思摘要"
+    },
+    "dream_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "是否启用梦境引擎自动记忆压缩"
+    },
+    "dream_story_time": {
+        "type": "string",
+        "default": "22:30",
+        "description": "每日故事时间"
+    },
+    "dream_bottle_time": {
+        "type": "string",
+        "default": "08:00",
+        "description": "每日漂流瓶时间"
+    },
+    "emotion_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "是否启用上下文感知情感分析"
+    },
+    "emotion_trend_window": {
+        "type": "int",
+        "default": 6,
+        "description": "趋势分析使用的最近情感条数"
+    },
+    "meme_base_probability": {
+        "type": "int",
+        "default": 80,
+        "description": "吐槽触发的基础概率 0-100"
+    },
+    "meme_neg_adjust_max": {
+        "type": "int",
+        "default": 30,
+        "description": "负面情感时吐槽概率最大降幅"
+    },
+    "meme_pos_adjust_max": {
+        "type": "int",
+        "default": 10,
+        "description": "正面情感时吐槽概率最大增幅"
+    },
+    "meme_serious_adjust_max": {
+        "type": "int",
+        "default": 15,
+        "description": "严肃话题时吐槽概率最大降幅"
+    },
+    "dream_cleaning_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "启用梦境清洗功能",
+        "hint": "控制是否运行五阶段门控清洗引擎（orient→gather→consolidate→prune→complete）"
+    },
+    "retrieval_tuning": {
+        "description": "检索调优（v6.5 新增）",
+        "hint": "把原先写死在代码里的检索参数提出来。改动在下次检索即生效，无需重启。默认值=原线上行为。",
+        "type": "object",
+        "items": {
+            "rrf_k": {
+                "description": "RRF 融合常数 k",
+                "hint": "标准论文值 60。越小，排名靠前的路权重越大；越大各路越平权。",
+                "type": "int",
+                "default": 60
+            },
+            "over_sample_ratio": {
+                "description": "过采样倍数",
+                "hint": "多路检索时取 limit×N 条再融合重排（TencentDB 标准 3x）。内存充裕可调 5 提高召回。",
+                "type": "int",
+                "default": 3
+            },
+            "enable_fts": {
+                "description": "FTS5 全文检索路开关",
+                "hint": "2026-08-20 基准实测：unicode61 tokenizer 对中文片段命中率为 0%（索引 1132 行全在但查不中），目前全靠 LIKE 路。关闭可省两次空查询；等主插件 FTS 换 trigram 后可重新打开。",
+                "type": "bool",
+                "default": true
+            },
+            "tier_priority_sort": {
+                "description": "Tier 优先级二次排序",
+                "hint": "开=L0>L1>L2>L3 碾压相关性分（线上原行为）；关=纯 RRF 相关性排序（老记忆不再被 tier 压住）。基准 MRR：开 0.989 / 关 0.947。",
+                "type": "bool",
+                "default": true
+            }
+        }
+    }
 }

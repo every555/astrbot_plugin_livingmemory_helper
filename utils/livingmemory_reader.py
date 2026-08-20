@@ -52,13 +52,23 @@ class LivingMemoryReader:
     - 搜索先走 FTS5，降级到 LIKE 模糊匹配
     """
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, config: dict = None):
         if db_path is None:
             root = os.getcwd()
             self.db_path = os.path.join(root, str(DEFAULT_DB_PATH))
         else:
             self.db_path = db_path
+        # v6.5: 检索调优配置（_conf_schema.json retrieval_tuning 组注入，缺省保持线上原行为）
+        self._rt_cfg = config or {}
         self._init_fts5()
+
+    def _cfg_get(self, key: str, default):
+        """v6.5: 读检索调优参数（类型不匹配时回落默认值，防手滑配错炸检索）"""
+        try:
+            v = self._rt_cfg.get(key, default)
+            return v if isinstance(v, type(default)) else default
+        except Exception:
+            return default
 
     def _connect(self):
         if not os.path.exists(self.db_path):
@@ -369,7 +379,16 @@ class LivingMemoryReader:
         conn = self._connect()
         lists = []
 
-        # ── 路径 1: FTS5 BM25 ──
+        # ── 路径 1: FTS5 BM25（v6.5 可配置关闭：当前 unicode61 对中文长片段命中率为 0，
+        #    基准报告 2026-08-20；关闭后省两次空查询，LIKE 扛检索）──
+        if not self._cfg_get("enable_fts", True):
+            rows = conn.execute(
+                "SELECT *, memory_tier as tier FROM documents WHERE text LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (f"%{query}%", limit),
+            ).fetchall()
+            conn.close()
+            return [("like", [self._format_row(dict(r)) for r in rows])]
         fts_table = None
         fts_join_col = None
 
@@ -449,7 +468,7 @@ class LivingMemoryReader:
         4. Tier 优先级二次排序 + 访问追踪
         """
         # ── v6.2: 多路检索 + RRF 融合 ──
-        over_retrieve = limit * 3  # 过采样（TencentDB 标准 3x）
+        over_retrieve = limit * self._cfg_get("over_sample_ratio", 3)  # 过采样（默认 3x，TencentDB 标准）
         strategy_lists = self._multi_strategy_search(query, over_retrieve)
 
         results = []
@@ -457,7 +476,7 @@ class LivingMemoryReader:
             # 多路 → RRF 融合
             from ..core.rrf_engine import rrf_merge
             ranked_lists = [results_list for _, results_list in strategy_lists]
-            results = rrf_merge(ranked_lists, id_key="id", k=60, limit=over_retrieve)
+            results = rrf_merge(ranked_lists, id_key="id", k=self._cfg_get("rrf_k", 60), limit=over_retrieve)
             logger.debug(
                 f"[LMHelper v6.2] RRF 融合 {[name for name, _ in strategy_lists]}: "
                 f"{len(results)} 条"
@@ -479,15 +498,18 @@ class LivingMemoryReader:
         if not results:
             return []
 
-        # ── Tier 优先级二次排序：L0 > L1 > L2 > L3 ──
-        tier_weight = {0: 1000, 1: 100, 2: 10, 3: 1}
-        results.sort(
-            key=lambda r: (
-                tier_weight.get(r.get("tier", 3), 0),
-                r.get("_rrf_score", 0),
-            ),
-            reverse=True,
-        )
+        # ── Tier 优先级二次排序：L0 > L1 > L2 > L3（v6.5 可配置关闭→纯 RRF 相关性排序）──
+        if self._cfg_get("tier_priority_sort", True):
+            tier_weight = {0: 1000, 1: 100, 2: 10, 3: 1}
+            results.sort(
+                key=lambda r: (
+                    tier_weight.get(r.get("tier", 3), 0),
+                    r.get("_rrf_score", 0),
+                ),
+                reverse=True,
+            )
+        else:
+            results.sort(key=lambda r: r.get("_rrf_score", 0), reverse=True)
         results = results[:limit]
 
         # ── 访问追踪 ──

@@ -9,7 +9,7 @@ desc: >
   LLM 可直接调用记忆数据库，所有工具返回自然语言摘要。
 short_desc: 记忆辅助 + 22个Agent Tools + 工具决策树 — 让老婆能自己翻记忆
 author: "春雪"
-version: "6.5.0"
+version: "6.5.1"
 astrbot_version: ">=4.23.1"
 support_platforms:
   - aiocqhttp
