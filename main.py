@@ -25,6 +25,8 @@ from .core.error_learner import ErrorLearner
 from .core.knowledge_graduator import KnowledgeGraduator
 from .core.exporter import MemoryExporter
 from .core.reminder import MemoryReminder
+from .core.standing_intent import StandingIntentStore
+from .core.promotion_engine import PromotionEngine, MIN_ACCESS
 from .core.reporter import MemoryReporter
 from .core.conflict_detector import ConflictDetector
 from .core.external_sync import ExternalSync
@@ -34,6 +36,8 @@ from .core.agent_tools import (
     HaruyukiSearchMemoryTool,
     HaruyukiSentimentTool,
     HaruyukiReminderTool,
+    HaruyukiStandingIntentTool,
+    HaruyukiPromoteTool,
     HaruyukiMemoryTraceTool,
     HaruyukiReinforceMemoryTool,
     HaruyukiKnowledgeTool,
@@ -90,6 +94,8 @@ class Main(star.Star):
             self.reader, os.path.join(data_dir, "exports"),
         )
         self.reminder = MemoryReminder(self.reader, data_dir)
+        self.intent_store = StandingIntentStore(data_dir)
+        self.promotion = PromotionEngine(data_dir)
         self.reporter = MemoryReporter(self.reader)
         self.detector = ConflictDetector(self.reader)
         self.syncer = ExternalSync(self.reader, data_dir)
@@ -110,12 +116,14 @@ class Main(star.Star):
             HaruyukiSearchMemoryTool(plugin=proxy_self),
             HaruyukiSentimentTool(plugin=proxy_self),
             HaruyukiReminderTool(plugin=proxy_self),
+            HaruyukiStandingIntentTool(plugin=proxy_self),
+            HaruyukiPromoteTool(plugin=proxy_self),
             HaruyukiMemoryTraceTool(plugin=proxy_self),
             HaruyukiReinforceMemoryTool(plugin=proxy_self),
             HaruyukiKnowledgeTool(plugin=proxy_self),
             HaruyukiArchiveTool(plugin=proxy_self),
         )
-        logger.info("[LMHelper v6.0] 9 Agent Tools 已注册：recall | today | search | sentiment | reminder | trace | reinforce | knowledge | archive")
+        logger.info("[LMHelper v6.0] 11 Agent Tools 已注册：recall | today | search | sentiment | reminder | intent | promote | trace | reinforce | knowledge | archive")
 
         # ━━━ v6.1: 记忆生态系统 v2.0 查询（家庭协作版 5 工具）━━━
         try:
@@ -147,29 +155,50 @@ class Main(star.Star):
         except Exception as e:
             logger.warning(f"[LMHelper v6.0] 家庭订阅注册失败（降级）: {e}")
 
+        # ━━━ P2-⑩: Tool Activity Bridge（log_monitor错误 × superpowers战报 → 知识毕业候选）━━━
+        try:
+            from .core.tool_activity import ToolActivityBridge
+            from .core.agent_tools import HaruyukiToolLogFeedTool
+            _log_err_db = os.path.join(root, "data", "plugin_data",
+                                       "astrbot_plugin_log_monitor", "log_errors.db")
+            _warstories = os.path.join(root, "data", "plugins",
+                                       "astrbot_plugin_superpowers", "data", "warstories", "warstories.jsonl")
+            self.tool_bridge = ToolActivityBridge(
+                _log_err_db, _warstories,
+                graduator=self.knowledge_graduator,
+                state_path=os.path.join(data_dir, "tool_activity_state.json"),
+            )
+            self.context.add_llm_tools(HaruyukiToolLogFeedTool(plugin=weakref.proxy(self)))
+            logger.info("[LMHelper P2-⑩] ToolActivityBridge 已装载（haruyuki_tool_log_feed）")
+        except Exception as e:
+            self.tool_bridge = None
+            logger.warning(f"[LMHelper P2-⑩] ToolActivityBridge 初始化失败（降级）: {e}")
+
+
+        # ━━━ replay: failed 记忆补录（haruyuki_memory_replay）━━━
+        try:
+            from .core.memory_replay import MemoryReplayService
+            self.memory_replay_db = os.path.join(root, 'data', 'plugin_data',
+                                                 'astrbot_plugin_livingmemory', 'livingmemory.db')
+            self.memory_replay_state = os.path.join(data_dir, 'memory_replay_state.json')
+            from .core.agent_tools import HaruyukiMemoryReplayTool
+            self.context.add_llm_tools(HaruyukiMemoryReplayTool(plugin=weakref.proxy(self)))
+            logger.info('[LMHelper replay] haruyuki_memory_replay 已装载')
+        except Exception as e:
+            self.memory_replay_db = None
+            logger.warning(f'[LMHelper replay] 初始化失败（降级）: {e}')
+
         # ━━━ v3.1: 知识图谱模块 ━━━
         ontology_db_path = os.path.join(data_dir, "ontology.db")
         self.ontology = OntologyManager(ontology_db_path)
         self.ontology_impl = OntologyToolImplementations(self.ontology)
         
         # 注册知识图谱Agent Tools
-        from .core.ontology import (
-            OntologyCreateEntityTool,
-            OntologyQueryEntityTool,
-            OntologyLinkEntitiesTool,
-            OntologySearchEntitiesTool,
-            OntologyGetRelatedTool,
-            OntologyStatsTool,
-        )
+        from .core.ontology import OntologyUnifiedTool
         self.context.add_llm_tools(
-            OntologyCreateEntityTool(plugin=self),
-            OntologyQueryEntityTool(plugin=self),
-            OntologyLinkEntitiesTool(plugin=self),
-            OntologySearchEntitiesTool(plugin=self),
-            OntologyGetRelatedTool(plugin=self),
-            OntologyStatsTool(plugin=self),
+            OntologyUnifiedTool(plugin=self),
         )
-        logger.info("[LMHelper v6.0] 6 知识图谱 Agent Tools 已注册：create | query | link | search | related | stats")
+        logger.info("[LMHelper v6.9] 知识图谱统一工具 haruyuki_ontology 已注册（八合一：create/query/update/delete/search/link/related/stats）")
 
         # ━━━ v4.0: Dream Engine ━━━
         self.dream_engine = DreamEngine(self.reader, data_dir)
@@ -182,6 +211,9 @@ class Main(star.Star):
 
         # ━━━ v4.2: Family Meeting Daemon（空闲自动开例会）━━━
         self._meeting_loop_task = asyncio.create_task(self._meeting_daemon())
+        # ━━━ v6.7: Promotion Daemon（召回晋升每日扫描）━━━
+        self._promotion_loop_task = asyncio.create_task(self._promotion_daemon())
+        logger.info("[LMHelper v6.7] Promotion Daemon 已初始化")
         logger.info("[LMHelper v6.0] Family Meeting Daemon 已初始化")
 
         # ━━━ v3.0: UI Settings Bridge ━━━
@@ -978,6 +1010,18 @@ class Main(star.Star):
             except Exception:
                 pass
 
+            # 6.（v6.6新增）持续意图注入 — 话题触发（借鉴 OpenClaw standing-intents）
+            try:
+                fired = self.intent_store.match_and_fire(msg, limit=3)
+                if fired:
+                    hint = "## 🎯 持续意图（关键词命中，请在回复中自然地带入）" + chr(10)
+                    for it in fired:
+                        hint += ("- [" + str(it["created_at"])[:10] + "布防] " + it["content"][:100] + 
+                                 "（" + str(it["fire_count"]) + "/" + str(it["max_fires"]) + "次）") + chr(10)
+                    parts.append(hint)
+            except Exception:
+                pass
+
             if parts:
                 req.system_prompt = (req.system_prompt or "") + "\n\n" + "\n".join(parts)
                 logger.info(f"[LMHelper v6.0] 注入 {len(parts)} 个提示块")
@@ -1023,6 +1067,26 @@ class Main(star.Star):
             conn.close()
             return []
         
+        # v6.7: 晋升常驻合并（Q1-A：进核心索引，封顶5条）
+        try:
+            _pids = self.promotion.list_active_doc_ids()
+            if _pids:
+                _conn = sqlite3.connect(db_path)
+                _conn.row_factory = sqlite3.Row
+                _ph = ",".join("?" * len(_pids))
+                _prows = _conn.execute(
+                    "SELECT text FROM documents WHERE id IN (" + _ph + ") "
+                    "ORDER BY access_count DESC LIMIT 5",
+                    _pids,
+                ).fetchall()
+                _conn.close()
+                for _r in _prows:
+                    _fl = (_r["text"] or "").split(chr(10))[0][:80]
+                    if _fl.strip():
+                        core_facts.append("[晋] " + _fl)
+        except Exception:
+            pass
+
         self._core_index_cache = (now, core_facts)
         return core_facts
 
@@ -1287,6 +1351,54 @@ class Main(star.Star):
         """Agent Tool: 提醒管理"""
         return await self.agent_tools_impl.manage_reminder(self.reminder, kwargs)
 
+    async def _tool_standing_intent(self, kwargs: dict) -> str:
+        """Agent Tool: 持续意图管理（话题触发）"""
+        return await self.agent_tools_impl.manage_standing_intent(self.intent_store, kwargs)
+
+    async def _tool_promote(self, kwargs: dict) -> str:
+        """Agent Tool: 召回驱动晋升管理"""
+        return await self.agent_tools_impl.manage_promotion(self.promotion, self, kwargs)
+
+    def _promotion_scan_once(self) -> dict:
+        """主库拉召回信号 → engine.scan + check_retire（daemon 与工具 scan 共用）"""
+        import sqlite3
+        db_path = self.reader.db_path
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT id as doc_id, text, access_count, last_accessed_at FROM documents "
+                "WHERE access_count >= " + str(MIN_ACCESS) + " AND last_accessed_at IS NOT NULL "
+                "ORDER BY access_count DESC LIMIT 200"
+            ).fetchall()
+            new = self.promotion.scan([dict(r) for r in rows])
+            retire_proposals = []
+            active = self.promotion.list_active_doc_ids()
+            if active:
+                ph = ",".join("?" * len(active))
+                arows = conn.execute(
+                    "SELECT id, last_accessed_at FROM documents WHERE id IN (" + ph + ")",
+                    active,
+                ).fetchall()
+                retire_proposals = self.promotion.check_retire(
+                    {r["id"]: r["last_accessed_at"] for r in arows})
+        finally:
+            conn.close()
+        return {"new_candidates": len(new), "retire_proposals": len(retire_proposals)}
+
+    async def _promotion_daemon(self):
+        """召回晋升守护：启动5分钟后首轮扫描，此后每24h扫一次（Q4-B 保险方案）"""
+        await asyncio.sleep(300)
+        while True:
+            try:
+                r = self._promotion_scan_once()
+                logger.info("[Promotion] 例行扫描: 新增" + str(r["new_candidates"]) + " 退位提议" + str(r["retire_proposals"]))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("[Promotion] daemon 扫描失败: " + str(e))
+            await asyncio.sleep(24 * 3600)
+
     async def _tool_memory_trace(self, kwargs: dict) -> str:
         """Agent Tool: v9 记忆溯源"""
         return await self.agent_tools_impl.memory_trace(self.reader, kwargs)
@@ -1302,6 +1414,68 @@ class Main(star.Star):
     async def _tool_knowledge(self, kwargs: dict) -> str:
         """Agent Tool: v6.0 知识毕业与审计"""
         return await self.agent_tools_impl.knowledge(self.knowledge_graduator, kwargs)
+
+    async def _tool_tool_log_feed(self, kwargs: dict) -> str:
+        """Agent Tool: P2-⑩ 工具日志桥——错误×战报匹配→知识毕业候选"""
+        if getattr(self, "tool_bridge", None) is None:
+            return "ToolActivityBridge 未启用（初始化失败或数据源缺失）。"
+        dry_run = bool(kwargs.get("dry_run", True))
+        r = self.tool_bridge.harvest(dry_run=dry_run)
+        lines = [f"【工具日志桥 · {'dry_run预览' if r['dry_run'] else '实弹收割'}】"]
+        if r["dry_run"]:
+            if r["preview"]:
+                lines.append(f"可提议 {len(r['preview'])} 条错误-修复链：")
+                for i, pv in enumerate(r["preview"], 1):
+                    lines.append(f"  {i}. {pv['title']}")
+            else:
+                lines.append("无可提议链（无匹配 / 不够格 / 均已提议过）。")
+        else:
+            lines.append(f"新提议 {r['proposed']} / 查重跳过 {r['skipped_dup']} / 失败 {r['failed']}")
+        if r["orphans"]:
+            lines.append(f"孤儿错误（无战报匹配，{len(r['orphans'])} 条，前3条）：")
+            for o in r["orphans"][:3]:
+                lines.append(f"  - #{o['error_id']} [{o['level']}×{o['occurrence']}] {o['signature'][:60]}")
+        return chr(10).join(lines)
+    def _get_lm_engine(self):
+        """拿 livingmemory 的活体引擎（宿主进程内，BM25+向量+graph 全索引写入）。"""
+        try:
+            meta = self.context.get_registered_star("astrbot_plugin_livingmemory")
+            if meta is None or not getattr(meta, "activated", False):
+                return None
+            inst = getattr(meta, "star_cls", None)
+            initr = getattr(inst, "initializer", None)
+            return getattr(initr, "memory_engine", None)
+        except Exception as e:
+            logger.warning(f"[LMHelper replay] 获取 livingmemory 引擎失败: {e}")
+            return None
+
+    async def _tool_memory_replay(self, kwargs: dict) -> str:
+        """Agent Tool: failed 记忆补录——payload 存活成果零 LLM 成本重放回库。"""
+        if not getattr(self, "memory_replay_db", None):
+            return "replay 服务未启用（初始化失败）。"
+        from .core.memory_replay import MemoryReplayService
+        dry_run = bool(kwargs.get("dry_run", True))
+        engine = None
+        if not dry_run:
+            engine = self._get_lm_engine()
+            if engine is None:
+                return "实弹需要 livingmemory 活体引擎，当前不可用（插件未激活?）。"
+        svc = MemoryReplayService(self.memory_replay_db, self.memory_replay_state, engine=engine)
+        r = await svc.replay(dry_run=dry_run)
+        lines = [f"【记忆补录 · {'dry_run 预览' if r['dry_run'] else '实弹补录'}】"]
+        lines.append(
+            f"候选 {r['candidates_total']} → 计划 {r['planned']}"
+            f"（测试剔除 {r['skipped_test']} / 重复簇 {r['skipped_dup']} / 已补录 {r['skipped_already']}）"
+        )
+        if r["dry_run"] and r["preview"]:
+            lines.append("计划重放清单（前8条）：")
+            for i, pv in enumerate(r["preview"], 1):
+                lines.append(f"  {i}. [{pv['date']}] {pv['head']}… (atoms×{pv['atoms']})")
+        if not r["dry_run"]:
+            lines.append(f"成功 {r['succeeded']} / 失败 {r['failed']}")
+            for d in r["failed_detail"][:5]:
+                lines.append(f"  ✗ {d}")
+        return chr(10).join(lines)
 
     # ━━━ v6.1: 记忆生态系统 v2.0 工具实现（家庭协作版）━━━
 
@@ -1372,6 +1546,13 @@ class Main(star.Star):
                 f"｜已入库 {s['confirmed']}｜已驳回 {s['declined']}"
                 f"｜flashbulb 预标升级 {s['flashbulb_flagged']}"
             )
+
+        if action == "audit":
+            try:
+                _tail = int(kwargs.get("tail", 30) or 30)
+            except (TypeError, ValueError):
+                _tail = 30
+            return gr.audit_log(tail=_tail)
 
         if action == "exempt":
             content = kwargs.get("content", "") or ""
@@ -1553,13 +1734,13 @@ class Main(star.Star):
         limit = int(kwargs.get("limit", 7) or 7)
         try:
             if action == "generate":
-                res = self.v2_reader.family_meeting_generate(date_str)
+                res = self.reader.family_meeting_generate(date_str)
                 if res.get("status") != "ok":
                     return f"例会日报生成失败: {res.get('msg', res)}"
                 r = res.get("report") or {}
-                return f"📋 家庭例会日报（{r.get('report_date')}）已生成：\n{r.get('summary') or ''}"
+                return f"📋 家庭例会日报（{r.get('report_date')}）已生成：\n{r.get('summary') or ''}\n\n{self.promotion.meeting_brief()}"
             if action == "list":
-                reports = self.v2_reader.family_meeting_list(limit)
+                reports = self.reader.family_meeting_list(limit)
                 if not reports or any("error" in x for x in reports):
                     return "还没有例会日报——首次生成请调用 action=generate。"
                 lines = [f"📚 最近 {len(reports)} 份例会日报"]
@@ -1570,10 +1751,10 @@ class Main(star.Star):
                     )
                 return chr(10).join(lines)
             if action == "stats":
-                st = self.v2_reader.family_meeting_stats()
+                st = self.reader.family_meeting_stats()
                 return f"📊 例会台账：共 {st.get('reports_total', 0)} 份日报，最新 {st.get('latest')}"
             # get（默认）
-            r = self.v2_reader.family_meeting_get(date_str)
+            r = self.reader.family_meeting_get(date_str)
             if not r:
                 d = date_str or "今天"
                 return f"{d} 还没有例会日报——可以让我「生成今日例会日报」。"
@@ -1900,6 +2081,37 @@ class Main(star.Star):
 
 注意：关闭后会立即停止正在进行的清洗任务"""
             yield event.plain_result(help_text)
+
+    @filter.command("lmem")
+    async def lmem_help(self, event: AstrMessageEvent):
+        """LMHelper 总帮助：所有命令一览（v6.9 新增）"""
+        help_text = """📔 LivingMemory Helper 命令一览
+
+── 记忆操作 ──
+  /记住 <内容> - 存入长期记忆
+  /回忆 <关键词> - 检索记忆
+  /记忆 - 查看记忆统计
+  /忘记 <ID> - 删除指定记忆
+
+── 提醒 ──
+  /lremind - 提醒列表与开关（on/off/scan）
+
+── 时间线与报告 ──
+  /lmem-timeline - 记忆时间线
+  /lmem-report - 记忆报告
+  /lmem-lessons / lmem-lesson <ID> - 教训列表/详情
+  /lmem-conflicts / lmem-conflict <ID> - 冲突列表/详情
+  /lmem-export - 导出记忆
+  /lmem-sync - 外部同步
+
+── 知识图谱 ──
+  /ontology - 图谱命令（create/query/link/list...，输入 /ontology 看详情）
+
+── 梦境清洗 ──
+  /dream status|on|off - 清洗任务控制
+
+Web 面板：AstrBot 仪表盘 → LivingMemory 页"""
+        yield event.plain_result(help_text)
 
     async def _api_report_weekly(self, request=None) -> dict:
         """GET /reports/weekly - 生成每周综合报告"""
@@ -2398,7 +2610,7 @@ class Main(star.Star):
             self._dream_loop_task.cancel()
         # v6.4.1 修复：reminder/meeting daemon 漏 cancel 导致热重载后僵尸任务
         # 并发跑旧代码、抢先 mark_fired，新代码永远不执行（2026-08-15 闹钟事故）
-        for t in ('_reminder_loop_task', '_meeting_loop_task'):
+        for t in ('_reminder_loop_task', '_meeting_loop_task', '_promotion_loop_task'):
             task = getattr(self, t, None)
             if task and not task.done():
                 task.cancel()
