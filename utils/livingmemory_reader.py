@@ -586,7 +586,14 @@ class LivingMemoryReader:
             for r in results:
                 r["_final"] = r.get("_rrf_score", 0.0) / max_s + w * tn.get(r.get("tier", 3), 0.0)
             results.sort(key=lambda r: r.get("_final", 0.0), reverse=True)
-        results = results[:limit]
+        # ── v6.8: MMR 多样性重排（对过采样池重排后再截断，相似重复让位多样）──
+        mmr_lambda = float(self._cfg_get("mmr_lambda", 0.7))
+        if mmr_lambda > 0 and len(results) > limit:
+            from ..core.rrf_engine import mmr_rerank
+            results = mmr_rerank(results, limit=limit, lam=mmr_lambda, text_key="content")  # _format_row 文本字段=content(canonical_summary)
+            logger.debug(f"[LMHelper v6.8] MMR 重排 lam={mmr_lambda}: 池 {len(results)} → top {limit}")
+        else:
+            results = results[:limit]
 
         # ── 访问追踪 ──
         if results:

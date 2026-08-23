@@ -189,6 +189,12 @@
                 "hint": "仅 tier_mode=soft 时生效。0=不看新鲜度，1=新鲜度与相关性同权。默认 0.35。",
                 "type": "float",
                 "default": 0.35
+            },
+            "mmr_lambda": {
+                "description": "MMR 多样性重排系数",
+                "hint": "0=关闭（原行为）。默认 0.7=相关性70%+多样性30%：Tier 排序后对过采样池(3x)做 MMR 贪心重排再截断，彼此高度重复的记忆会让位给覆盖面更广的候选。相似度=中文 trigram Jaccard（与 FTS5 t3 索引同源，无向量依赖）。调低→更追求多样，调高→更聚焦相关。",
+                "type": "float",
+                "default": 0.7
             }
         }
     }

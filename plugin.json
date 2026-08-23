@@ -2,11 +2,20 @@
   "name": "astrbot_plugin_livingmemory_helper",
   "description": "LivingMemory 辅助增强插件：记忆系统 + 知识毕业 + 图谱 + 梦境 + Agent Tools",
   "author": "春雪",
-  "version": "6.2.0",
+  "version": "6.9.0",
   "astrbot_version": ">=4.0.0",
-  "platforms": ["aiocqhttp", "webchat"],
-  "dependencies": ["astrbot_plugin_livingmemory"],
-  "permissions": ["read", "write", "webui"],
+  "platforms": [
+    "aiocqhttp",
+    "webchat"
+  ],
+  "dependencies": [
+    "astrbot_plugin_livingmemory"
+  ],
+  "permissions": [
+    "read",
+    "write",
+    "webui"
+  ],
   "config_schema": {
     "embedding_api_key": {
       "type": "string",

@@ -20,6 +20,26 @@ from datetime import datetime
 from typing import Optional
 
 from astrbot.api import logger
+import re
+
+
+def _bigram_tokens(text: str) -> set:
+    """CJK bigram + 英文数字整词（≥2字符）。
+
+    修 P0-③ 踩坑：旧正则 [\w\u4e00-\u9fff]{2,} 把整句中文当一个巨型 token，
+    两条不同中文记忆 Jaccard≈0（归并候选 0 对）且日期数字会撞出假阳性。
+    bigram 后：真重复稳抓（≥0.6），同日期不同事压到 <0.4。"""
+    t = (text or "").lower()
+    toks = set()
+    for seg in re.findall(r"[a-z0-9]{2,}", t):
+        toks.add(seg)
+    for run in re.findall(r"[\u4e00-\u9fff]+", t):
+        if len(run) == 1:
+            toks.add(run)
+        else:
+            for i in range(len(run) - 1):
+                toks.add(run[i:i + 2])
+    return toks
 
 
 class DreamEngine:
@@ -69,6 +89,8 @@ class DreamEngine:
         self._history: list = []
         # v5.5: 持久化文件
         self.history_file = os.path.join(data_dir, "dream_history.json")
+        # P0-3: 梦境报告落盘（例会日报整合用）
+        self.report_file = os.path.join(data_dir, "dream_report.json")
         self.prune_log_file = os.path.join(data_dir, "prune_log.json")
         self._load_history_from_file()
         self._load_prune_log_from_file()
@@ -153,7 +175,7 @@ class DreamEngine:
                 text = (row["text"] or "").lower()
                 # 简单分词：按空格和标点切分，取长度 >= 2 的词
                 import re
-                words = set(re.findall(r'[\w\u4e00-\u9fff]{2,}', text))
+                words = _bigram_tokens(text)
                 memories.append({
                     "id": row["id"],
                     "text": text,
@@ -457,8 +479,14 @@ class DreamEngine:
 
     # ━━━ 主流程 ━━━
 
-    async def run_dream(self, force: bool = False):
-        """全自动五阶段清洗流程：orient → gather → consolidate → prune → complete"""
+    async def run_dream(self, force: bool = False, dry_run: bool = False):
+        """全自动五阶段清洗流程：orient → gather → consolidate → prune → complete
+
+        P0-3 新增 dry_run=True: 只读预览模式（不备份/不写库/不删除/不抢锁），
+        返回 {consolidate_pairs, prune_preview, conflicts} 完整梦境报告。
+        """
+        if dry_run:
+            return self.dry_run_dream()
         # 检查功能是否启用
         if not self._check_enabled():
             return
@@ -497,6 +525,10 @@ class DreamEngine:
             self._log_history("consolidate", f"merged={consolidated}")
             await asyncio.sleep(0.5)
 
+            # ── Phase 3.5: Conflict Scan（P0-3 主动冲突巡检）──
+            conflicts = self._run_conflict_scan()
+            self._log_history("conflict_scan", f"found={len(conflicts)}")
+
             # ── Phase 4: Prune（修剪）—— 白名单 + 数量上限 + 详细日志 ──
             self._update_lock_stage(self.STAGE_PRUNE)
             logger.info("[DreamEngine] ✂️ Phase 4/5: Prune — 修剪低价值记忆节点（白名单保护 + 数量上限）")
@@ -522,6 +554,16 @@ class DreamEngine:
             self.last_completed_at = datetime.now()
             logger.info(f"[DreamEngine] ✅ Phase 5/5: Complete — 梦境清洗完成 @ {self.last_completed_at.isoformat()}")
             self._log_history("complete", f"completed_at={self.last_completed_at.isoformat()}")
+            # P0-3: 梦境报告落盘，供例会日报整合
+            self._save_dream_report({
+                "completed_at": self.last_completed_at.isoformat(),
+                "mode": "real",
+                "consolidated": consolidated,
+                "pruned": len(self._last_prune_log),
+                "prune_preview": {"candidates": len(candidates or []), "deleted": len(self._last_prune_log)},
+                "conflicts_found": len(conflicts),
+                "conflict_pairs": conflicts[:10],
+            })
             await asyncio.sleep(0.1)
 
         except asyncio.CancelledError:
@@ -613,3 +655,92 @@ class DreamEngine:
     def get_enabled(self) -> bool:
         """获取当前开关状态"""
         return self.enabled
+
+    # ━━━ P0-3 Auto-Dream: dry_run 预览 + 冲突巡检 + 报告落盘 ━━━
+
+    def _preview_consolidate_pairs(self) -> list:
+        """dry_run 版归并预览：只算相似对，不写库。与 _consolidate_similar 同算法。"""
+        pairs = []
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, text, metadata FROM documents "
+                "WHERE json_extract(metadata, '$.importance') < ? ORDER BY id DESC LIMIT 200",
+                (self.importance_whitelist,)
+            ).fetchall()
+            import re
+            memories = [{
+                "id": r["id"],
+                "text": (r["text"] or "").lower(),
+                "imp": (json.loads(r["metadata"]) if r["metadata"] else {}).get("importance", 0.5),
+                "words": _bigram_tokens(r["text"]),
+            } for r in rows]
+            seen = set()
+            for i in range(len(memories)):
+                if memories[i]["id"] in seen: continue
+                for j in range(i + 1, len(memories)):
+                    if memories[j]["id"] in seen: continue
+                    u = memories[i]["words"] | memories[j]["words"]
+                    if not u: continue
+                    sim = len(memories[i]["words"] & memories[j]["words"]) / len(u)
+                    if sim >= 0.6:
+                        keeper, merged = (memories[i], memories[j]) if memories[i]["imp"] >= memories[j]["imp"] else (memories[j], memories[i])
+                        pairs.append({"keep_id": keeper["id"], "merge_id": merged["id"], "similarity": round(sim, 2), "keep_imp": keeper["imp"]})
+                        seen.add(merged["id"])
+                        if len(pairs) >= 20: break
+                if len(pairs) >= 20: break
+            conn.close()
+        except Exception as e:
+            logger.warning(f"[DreamEngine] 归并预览失败: {e}")
+        return pairs
+
+    def _run_conflict_scan(self, limit: int = 50) -> list:
+        """P0-3 冲突主动巡检：同话题不同事实的记忆对。失败降级为空列表。"""
+        try:
+            from .conflict_detector import ConflictDetector
+            detector = ConflictDetector(self.reader)
+            return detector.detect_conflicts(limit)
+        except Exception as e:
+            logger.warning(f"[DreamEngine] 冲突巡检失败(降级): {e}")
+            return []
+
+    def dry_run_dream(self) -> dict:
+        """P0-3 只读梦境预览：归并对 + prune候选 + 冲突对，不动任何数据。"""
+        report = {
+            "mode": "dry_run",
+            "timestamp": datetime.now().isoformat(),
+            "consolidate_pairs": self._preview_consolidate_pairs(),
+            "prune_preview": self.get_prune_preview(),
+            "conflicts": self._run_conflict_scan(),
+        }
+        report["totals"] = {
+            "merge_candidates": len(report["consolidate_pairs"]),
+            "prune_candidates": report["prune_preview"].get("prune_count", 0),
+            "conflict_candidates": len(report["conflicts"]),
+        }
+        self._save_dream_report(report)
+        logger.info(f"[DreamEngine] 🔍 dry_run 预览完成: {report['totals']}")
+        return report
+
+    def _save_dream_report(self, report: dict):
+        """梦境报告落盘（例会日报从这读）。best-effort。"""
+        try:
+            report["saved_at"] = time.time()
+            with open(self.report_file, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[DreamEngine] 报告落盘失败: {e}")
+
+    def load_dream_report(self, max_age_hours: float = 26.0):
+        """读最近一次梦境报告；超过 max_age_hours 视为过期返回 None。"""
+        try:
+            if not os.path.exists(self.report_file):
+                return None
+            with open(self.report_file, "r", encoding="utf-8") as f:
+                rep = json.load(f)
+            if time.time() - float(rep.get("saved_at", 0)) > max_age_hours * 3600:
+                return None
+            return rep
+        except Exception:
+            return None

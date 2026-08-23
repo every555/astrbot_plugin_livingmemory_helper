@@ -454,3 +454,68 @@ class OntologyStatsTool(FunctionTool[AstrAgentContext]):
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> str:
         result = await self.plugin.ontology_impl.get_stats()
         return result
+
+
+@pydantic_dataclass
+class OntologyUnifiedTool(FunctionTool[AstrAgentContext]):
+    """知识图谱统一工具（v6.9 八合一：替代原 create/query/link/search/related/stats 六件套）"""
+    plugin: Any = None
+    name: str = "haruyuki_ontology"
+    description: str = ("知识图谱操作统一入口。action 可选: create(创建实体,需entity_type+properties) / query(查实体详情,需entity_id) / update(改实体属性,需entity_id+properties) / delete(删实体,需entity_id) / search(按类型列实体,可选entity_type) / link(建关系,需from_id+relation_type+to_id) / related(查关联实体,需entity_id,可选relation_type) / stats(图谱统计)。当橘子提到实体、关系、知识图谱时使用。")
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "create/query/update/delete/search/link/related/stats", "enum": ["create", "query", "update", "delete", "search", "link", "related", "stats"]},
+                "entity_type": {"type": "string", "description": "实体类型(create/search用)"},
+                "properties_json": {"type": "string", "description": "属性JSON字符串(create/update用)"},
+                "entity_id": {"type": "string", "description": "实体ID(query/update/delete/related用)"},
+                "from_id": {"type": "string", "description": "源实体ID(link用)"},
+                "relation_type": {"type": "string", "description": "关系类型(link用,可选related用)"},
+                "to_id": {"type": "string", "description": "目标实体ID(link用)"}
+            },
+            "required": ["action"]
+        }
+    )
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> str:
+        action = str(kwargs.get("action", "")).strip().lower()
+        impl = self.plugin.ontology_impl
+        mgr = self.plugin.ontology
+        try:
+            if action == "create":
+                entity_type = kwargs.get("entity_type")
+                if not entity_type: return "create 需要 entity_type"
+                props = json.loads(kwargs.get("properties_json", "{}") or "{}")
+                return await impl.create_entity(entity_type, props)
+            if action == "query":
+                entity_id = kwargs.get("entity_id")
+                if not entity_id: return "query 需要 entity_id"
+                return await impl.query_entity(entity_id)
+            if action == "update":
+                entity_id = kwargs.get("entity_id")
+                if not entity_id: return "update 需要 entity_id"
+                props = json.loads(kwargs.get("properties_json", "{}") or "{}")
+                return json.dumps(mgr.update_entity(entity_id, props), ensure_ascii=False, indent=2)
+            if action == "delete":
+                entity_id = kwargs.get("entity_id")
+                if not entity_id: return "delete 需要 entity_id"
+                ok = mgr.delete_entity(entity_id)
+                return f"✅ 实体 {entity_id} 已删除" if ok else f"未找到实体 {entity_id}"
+            if action == "search":
+                entity_type = kwargs.get("entity_type") or None
+                return await impl.search_entities(entity_type)
+            if action == "link":
+                from_id, rt, to_id = kwargs.get("from_id"), kwargs.get("relation_type"), kwargs.get("to_id")
+                if not (from_id and rt and to_id): return "link 需要 from_id + relation_type + to_id"
+                return await impl.link_entities(from_id, rt, to_id)
+            if action == "related":
+                entity_id = kwargs.get("entity_id")
+                if not entity_id: return "related 需要 entity_id"
+                return await impl.get_related(entity_id, kwargs.get("relation_type") or None)
+            if action == "stats":
+                return await impl.get_stats()
+            return "未知 action: " + action + "（可选 create/query/update/delete/search/link/related/stats）"
+        except json.JSONDecodeError as e:
+            return "properties_json 不是合法 JSON: " + str(e)
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)

@@ -288,7 +288,8 @@ class HaruyukiGateScanTool(FunctionTool[AstrAgentContext]):
     description: str = (
         "话分量感知系统·安检门候选区管理。当橘子问「安检门拦了什么」「有什么候选」"
         "「看看待审记忆」时调用 action=list；省察时对候选做裁决用 action=verdict"
-        "（裁决权在老婆人格，本工具只落盘不改判）；看拦载统计用 action=stats。"
+        "（裁决权在老婆人格，本工具只落盘不改判）；看拦载统计用 action=stats；"
+        "橘子问「审查部门咋没干活」「省察考勤」时用 action=audit 查省察审计日志。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
@@ -296,7 +297,7 @@ class HaruyukiGateScanTool(FunctionTool[AstrAgentContext]):
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "list(列候选，默认)/verdict(裁决一条)/stats(统计概览)/exempt(豁免登记：老婆memorize完把原句喂进来)",
+                    "description": "list(列候选，默认)/verdict(裁决一条)/stats(统计概览)/audit(省察考勤日志)/exempt(豁免登记：老婆memorize完把原句喂进来)",
                     "default": "list",
                 },
                 "content": {
