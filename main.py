@@ -188,6 +188,36 @@ class Main(star.Star):
             self.memory_replay_db = None
             logger.warning(f'[LMHelper replay] 初始化失败（降级）: {e}')
 
+        # ━━━ P2-⑫: 记忆搬家工具（haruyuki_memory_export / haruyuki_memory_import）━━━
+        try:
+            lm_dir = os.path.join(root, 'data', 'plugin_data', 'astrbot_plugin_livingmemory')
+            self.memory_mover_databases = {
+                'livingmemory': (os.path.join(lm_dir, 'livingmemory.db'), [
+                    'documents', 'memory_atoms', 'graph_nodes', 'graph_edges',
+                    'graph_entries', 'graph_entry_nodes', 'memory_write_ops']),
+                'graph_documents': (os.path.join(lm_dir, 'livingmemory_graph_documents.db'), ['documents']),
+                'conversations': (os.path.join(lm_dir, 'conversations.db'), ['sessions', 'messages']),
+                'gate': (os.path.join(lm_dir, 'gate.db'), [
+                    'gate_candidates', 'learned_nouns', 'memorized_fp', 'gate_token_log']),
+                'v2_memory': (os.path.join(lm_dir, 'v2_memory.db'), [
+                    'memory_causality', 'memory_conflicts', 'memory_profile',
+                    'memory_prophecies', 'memory_expression_log', 'feedback_log',
+                    'archive_candidates', 'family_roles', 'family_reports']),
+            }
+            self.memory_mover_attachments = [
+                os.path.join(lm_dir, 'livingmemory.index'),
+                os.path.join(lm_dir, 'livingmemory_graph.index'),
+                os.path.join(lm_dir, 'gate_labels.jsonl'),
+            ]
+            self.memory_mover_exports = os.path.join(data_dir, 'memory_exports')
+            from .core.agent_tools import HaruyukiMemoryExportTool, HaruyukiMemoryImportTool
+            self.context.add_llm_tools(HaruyukiMemoryExportTool(plugin=weakref.proxy(self)))
+            self.context.add_llm_tools(HaruyukiMemoryImportTool(plugin=weakref.proxy(self)))
+            logger.info('[LMHelper P2-⑫] 记忆搬家工具已装载（export/import）')
+        except Exception as e:
+            self.memory_mover_databases = None
+            logger.warning(f'[LMHelper P2-⑫] 初始化失败（降级）: {e}')
+
         # ━━━ v3.1: 知识图谱模块 ━━━
         ontology_db_path = os.path.join(data_dir, "ontology.db")
         self.ontology = OntologyManager(ontology_db_path)
@@ -1476,6 +1506,62 @@ class Main(star.Star):
             for d in r["failed_detail"][:5]:
                 lines.append(f"  ✗ {d}")
         return chr(10).join(lines)
+
+    def _make_mover_service(self):
+        from .core.memory_mover import MemoryMoverService
+        return MemoryMoverService(
+            databases=self.memory_mover_databases,
+            attachment_files=self.memory_mover_attachments,
+        )
+
+    async def _tool_memory_export(self, kwargs: dict) -> str:
+        """Agent Tool: P2-⑫ 记忆搬家·导出（logical=JSONL灵魂层 / physical=物理快照）。"""
+        if not getattr(self, "memory_mover_databases", None):
+            return "搬家服务未启用（初始化失败）。"
+        mode = kwargs.get("mode", "logical")
+        if mode not in ("logical", "physical"):
+            return "mode 只支持 logical / physical。"
+        import time as _t
+        stamp = _t.strftime("%Y%m%d_%H%M%S")
+        target = os.path.join(self.memory_mover_exports, f"export_{mode}_{stamp}")
+        svc = self._make_mover_service()
+        if mode == "logical":
+            r = svc.export_logical(target)
+        else:
+            r = svc.export_physical(target)
+        v = svc.verify(target) if mode == "logical" else {"ok": None, "mismatch": []}
+        lines = [f"【记忆搬家 · {'逻辑导出(灵魂层)' if mode=='logical' else '物理快照(身体层)'}】"]
+        lines.append(f"行李目录: {target}")
+        if mode == "logical":
+            for key in sorted(r["tables"]):
+                lines.append(f"  {key}: {r['tables'][key]} 行")
+            lines.append(f"manifest 校验: {'通过' if v['ok'] else '失败 ' + str(v['mismatch'][:3])}")
+        else:
+            for key in sorted(r["databases"]):
+                d = r["databases"][key]
+                lines.append(f"  {key}: {d.get('rows', '?')} 行 → {d['file']}")
+            lines.append("附属文件(index/labels)已原样拷贝至 physical/")
+        lines.append("安全红线: 导出产物在 plugin_data 下，不进 git；源库全程只读。")
+        return chr(10).join(lines)
+
+    async def _tool_memory_import(self, kwargs: dict) -> str:
+        """Agent Tool: P2-⑫ 记忆搬家·导入（manifest 强制校验 + documents 幂等 upsert）。"""
+        if not getattr(self, "memory_mover_databases", None):
+            return "搬家服务未启用（初始化失败）。"
+        export_dir = kwargs.get("export_dir", "")
+        target_db = kwargs.get("target_db", "")
+        if not export_dir or not target_db:
+            return "需要 export_dir（导出包）和 target_db（目标库）两个参数。"
+        dry_run = bool(kwargs.get("dry_run", True))
+        from .core.memory_mover import MemoryMoverService
+        svc = self._make_mover_service()
+        try:
+            r = svc.import_documents(export_dir, target_db, dry_run=dry_run)
+        except ValueError as e:
+            return f"【导入被拒】{e}"
+        if r["dry_run"]:
+            return f"【导入 dry_run】校验通过，将 upsert {r['would_upsert']} 条 documents。未写库。"
+        return f"【导入实弹】documents 已幂等 upsert {r['upserted']} 条（doc_id 冲突=更新，新=插入）。"
 
     # ━━━ v6.1: 记忆生态系统 v2.0 工具实现（家庭协作版）━━━
 

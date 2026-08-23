@@ -1537,3 +1537,67 @@ class HaruyukiMemoryReplayTool(FunctionTool[AstrAgentContext]):
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         return await self.plugin._tool_memory_replay(kwargs)
+
+
+class HaruyukiMemoryExportTool(FunctionTool[AstrAgentContext]):
+    """P2-⑫ 记忆搬家·导出：灵魂层JSONL/身体层物理快照（2026-08-23）"""
+
+    plugin: Any = None
+    name: str = "haruyuki_memory_export"
+    description: str = (
+        "记忆搬家·导出（P2-⑫，Claude memory import 思路）。mode=logical 灵魂层：全家库逐表"
+        "导出 JSONL+manifest（计数+SHA256），人能读、能 diff、跨家可携；mode=physical 身体层："
+        "SQLite backup API 一致性快照+FAISS index 附属文件。导出产物在 plugin_data 下，绝不进 git。"
+        "当橘子说'导出记忆''打包行李''备份记忆全家'时调用。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["logical", "physical"],
+                    "description": "logical=JSONL逻辑导出（默认）；physical=物理快照（db+index）",
+                },
+            },
+            "required": [],
+        },
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_memory_export(kwargs)
+
+
+class HaruyukiMemoryImportTool(FunctionTool[AstrAgentContext]):
+    """P2-⑫ 记忆搬家·导入：manifest校验→documents幂等upsert样板（2026-08-23）"""
+
+    plugin: Any = None
+    name: str = "haruyuki_memory_import"
+    description: str = (
+        "记忆搬家·导入（P2-⑫）。导入前强制 manifest 校验（计数+SHA256，篡改必拒），"
+        "dry_run 默认开。v1 为 documents 按 doc_id 幂等 upsert 样板（ON CONFLICT 语义，"
+        "重复执行结果一致）。当橘子说'导入记忆''记忆搬新家'时调用。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "export_dir": {
+                    "type": "string",
+                    "description": "导出包目录（含 manifest.json）",
+                },
+                "target_db": {
+                    "type": "string",
+                    "description": "目标 documents 库路径（新家的 livingmemory.db）",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "true=只校验+预览不写（默认）；false=实弹 upsert",
+                },
+            },
+            "required": ["export_dir", "target_db"],
+        },
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_memory_import(kwargs)
