@@ -135,3 +135,105 @@ class ContextOffloadManager:
         elif ratio >= OFFLOAD_MILD_RATIO:
             return "mild", total, self.max_context_tokens
         return "none", total, self.max_context_tokens
+
+
+# ── MMR 多样性重排（v6.8）─────────────────────────────────────────────
+# 借鉴经典 MMR (Maximal Marginal Relevance, Carbonell & Goldstein 1998)
+# TencentDB Agent Memory / Cyrene 均有同款：相关性 × 多样性 贪心选择。
+#
+# MMR(d) = lam * rel(d) - (1-lam) * max_{s in S} sim(d, s)
+#   rel(d)   相关性：RRF/融合分 max 归一化（无 embedding，不依赖向量）
+#   sim(d,s) 相似度：中文 trigram Jaccard（与 helper 自建 FTS5 trigram
+#             索引同一套切法，零依赖纯文本；documents 表无向量列）
+#   lam=0.7 默认：相关性 70% + 多样性 30%；lam=0 由调用方直接跳过（关闭）
+
+DEF_MMR_LAMBDA = 0.7
+
+
+def trigram_set(text: str) -> set:
+    """文本 → 3-gram 集合（中文按字符，不足 3 字符退化为 whole-gram）"""
+    t = (text or "").strip()
+    if not t:
+        return set()
+    if len(t) < 3:
+        return {t}
+    return {t[i : i + 3] for i in range(len(t) - 2)}
+
+
+def jaccard(a: set, b: set) -> float:
+    """集合 Jaccard 相似度（空集对 → 0.0）"""
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    if not inter:
+        return 0.0
+    return inter / (len(a) + len(b) - inter)
+
+
+def _rel_of(item: Dict[str, Any], rel_key: Optional[str]) -> float:
+    """取相关性分：优先 rel_key，其次 _final（tier soft 模式），回落 _rrf_score"""
+    if rel_key:
+        return float(item.get(rel_key, 0.0) or 0.0)
+    v = item.get("_final")
+    if v is None:
+        v = item.get("_rrf_score", 0.0)
+    return float(v or 0.0)
+
+
+def mmr_rerank(
+    items: List[Dict[str, Any]],
+    limit: int = 10,
+    lam: float = DEF_MMR_LAMBDA,
+    text_key: str = "text",
+    rel_key: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """MMR 贪心重排：从相关性排序池中选出「既相关又彼此不重复」的 top-N。
+
+    Args:
+        items: 已按相关性降序的候选池（通常为 limit x over_sample_ratio 条）
+        limit: 最终保留条数
+        lam: 相关性权重（0-1）；调用方应在 lam<=0 时直接跳过本函数（关闭）
+        text_key: 用于多样性计算的文本字段
+        rel_key: 相关性分字段；None=自动 _final/_rrf_score
+
+    Returns:
+        重排后的列表（len == min(len(items), limit)），各项附加 _mmr_score
+    """
+    if lam <= 0 or not items:
+        return items[:limit]
+    limit = max(1, min(limit, len(items)))
+
+    rels = [_rel_of(it, rel_key) for it in items]
+    r_max = max(rels)
+    # max 归一化（相对最强候选的比例），非 min-max：池内垫底 ≠ 零相关，
+    # min-max 会把池尾打成 0 分导致多样性罚分永远拉不平（v6.8 单测抓出）
+    if r_max > 0:
+        rel_norm = [r / r_max for r in rels]
+    else:
+        rel_norm = [0.5 for _ in rels]  # 全零分 → 相关性无信号，多样性主导
+
+    grams = [trigram_set(str(it.get(text_key) or "")) for it in items]
+
+    selected: List[int] = []
+    selected_grams: List[set] = []
+    remaining = list(range(len(items)))
+
+    while len(selected) < limit and remaining:
+        best_i, best_v = None, -1e18
+        for i in remaining:
+            max_sim = 0.0
+            for sg in selected_grams:
+                s = jaccard(grams[i], sg)
+                if s > max_sim:
+                    max_sim = s
+            v = lam * rel_norm[i] - (1.0 - lam) * max_sim
+            if v > best_v:
+                best_v, best_i = v, i
+        selected.append(best_i)
+        selected_grams.append(grams[best_i])
+        remaining.remove(best_i)
+
+    result = [items[i] for i in selected]
+    for rank, it in enumerate(result):
+        it["_mmr_rank"] = rank
+    return result

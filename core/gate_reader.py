@@ -87,6 +87,26 @@ class GateReader:
 
     # ─────────── 裁决落盘（省察时老婆亲自调用） ───────────
 
+    def audit_log(self, tail: int = 30) -> str:
+        """省察考勤（2026-08-20 橘子"给审查系统装个日志功能"）。
+
+        读省察审计日志 reflection_audit.log 尾部（与 gate.db 同目录，
+        由本体 reflection_scheduler 写）。18:21 省察卡死无人知晓的案底，
+        以后橘子问考勤 action=audit 一查便知。"""
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(self.db_path)), "reflection_audit.log"
+        )
+        if not os.path.exists(path):
+            return ("【省察考勤】还没有审计记录（reflection_audit.log 未生成）——"
+                    "本体插件重载生效后，首次省察事件自动建账。")
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            shown = [l.rstrip() for l in lines[-max(1, int(tail)):]]
+            return "【省察考勤·最近事件】" + chr(10) + chr(10).join(shown)
+        except Exception as e:
+            return f"【省察考勤】读取失败: {e}"
+
     def mark_memorized(self, texts) -> int:
         """豁免登记直通：老婆 memorize 完把原句喂给门（橘子10:04抓的缺口）。"""
         conn = self._get_conn()

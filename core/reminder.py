@@ -227,6 +227,17 @@ class MemoryReminder:
             parsed = self._parse_natural_time(c["extracted_time"])
             if not parsed:
                 continue
+            # v6.9 三层护栏：自动扫描的垃圾拦截（2026-08-20 清洗 86 条垃圾后的根治）
+            ext = c.get("extracted_time", "")
+            # ① 时间文本超20字=正文片段被误当日标
+            if len(ext) > 20:
+                continue
+            # ② 时间文本与正文开头重合=解析失败的标志
+            if ext[:6] and c.get("text", "")[:6] == ext[:6]:
+                continue
+            # ③ 纯关键词（今晚/明天）无数字锚点=信息量太弱，拒绝；必须有 X点/X日/X天后
+            if not any(ch.isdigit() for ch in ext) and "后" not in ext:
+                continue
             # 只创建未来的提醒
             try:
                 t = datetime.fromisoformat(parsed)
@@ -344,7 +355,7 @@ class MemoryReminder:
         # 优先匹配明确的时间模式
         patterns = [
             r'(\d{1,2})\s*[点时]\s*(\d{1,2})?\s*(上午|下午|晚上|am|pm)?',
-            r'(明天|后天|大后天|下周|下下周|下个月)\s*(\d{1,2})?\s*[点时]?',
+            r'(明天|后天|大后天|下周|下下周|下个月)\s*(?:\d{1,2}\s*[点时]|上午|下午|晚上|中午|凌晨|傍晚|清晨)',
             r'(\d{1,2})\s*(分钟|小时|天)\s*(后|以后)',
             r'(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]',
         ]
@@ -352,14 +363,16 @@ class MemoryReminder:
             m = re.search(pat, text)
             if m:
                 return m.group(0)
-        # 降级到关键词匹配
+        # 降级到关键词匹配（v6.9 护栏：只在前60字内找——
+        # 叙述性记忆的时间词藏在正文中间，靠前的才是真提醒意图）
+        head = text[:60]
         for kw in list(_TIME_KEYWORDS.keys()) + list(_HOUR_KEYWORDS.keys()):
-            if kw in text:
+            if kw in head:
                 # 返回包含关键词的一小段
-                idx = text.index(kw)
+                idx = head.index(kw)
                 start = max(0, idx - 5)
-                end = min(len(text), idx + len(kw) + 10)
-                return text[start:end]
+                end = min(len(head), idx + len(kw) + 10)
+                return head[start:end]
         return None
 
     # ─────────── 辅助 ───────────

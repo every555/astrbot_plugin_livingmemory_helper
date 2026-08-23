@@ -226,6 +226,98 @@ class HaruyukiReminderTool(FunctionTool[AstrAgentContext]):
         return await self.plugin._tool_reminder(kwargs)
 
 
+# v6.6: Standing Intent Tool — 话题触发的持续意图（借鉴 OpenClaw standing-intents）
+@pydantic_dataclass
+class HaruyukiStandingIntentTool(FunctionTool[AstrAgentContext]):
+    """管理持续意图：下次聊到某话题时自动提醒/带入上下文。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_standing_intent"
+    description: str = (
+        "管理持续意图系统（话题触发的提醒）。与 haruyuki_reminder 分工：reminder=固定时间触发，"
+        "intent=内容/话题触发。当橘子说「下次聊到X时提醒我Y」「记住：以后提到X就要Y」"
+        "「有什么持续意图」「取消那个意图」时调用。关键词命中后意图自动注入对话上下文。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "操作类型: list(查看列表), create(创建意图), cancel(取消意图)",
+                    "default": "list",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "意图内容：命中话题后要提醒/带入什么（create 时必填）",
+                    "default": "",
+                },
+                "keywords": {
+                    "type": "string",
+                    "description": "触发关键词，逗号分隔，如 单词,背单词,英语 （create 时必填，任一命中即触发）",
+                    "default": "",
+                },
+                "max_fires": {
+                    "type": "integer",
+                    "description": "最多触发次数，默认3次，触发完自动完成",
+                    "default": 3,
+                },
+                "cooldown_hours": {
+                    "type": "integer",
+                    "description": "两次触发的最小间隔小时数，默认24",
+                    "default": 24,
+                },
+                "intent_id": {
+                    "type": "integer",
+                    "description": "意图ID（cancel 时必填）",
+                    "default": 0,
+                },
+            },
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_standing_intent(kwargs)
+
+# v6.7: Promote Tool — 召回驱动晋升（例会第二议题 + 独立兜底，借鉴 OpenClaw short-term-promotion）
+@pydantic_dataclass
+class HaruyukiPromoteTool(FunctionTool[AstrAgentContext]):
+    """召回驱动的记忆晋升：被反复召回的记忆 → 候选 → 审批 → 常驻核心索引。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_promote"
+    description: str = (
+        "召回驱动晋升系统。被反复召回(access_count>=5且7天内活跃)的记忆自动成为候选，"
+        "批准后常驻核心记忆索引(封顶5条，30天无人召回提议退位)。家庭例会第二议题自动汇报；"
+        "本工具是独立兜底：橘子说「晋升/常驻这条记忆」用 approve，「不常驻」用 reject，"
+        "「看看晋升候选」用 list，「手动扫一次」用 scan，「这条退位吧」用 retire，「这条保留」用 keep。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "list(候选+常驻清单)/approve(批准晋升)/reject(驳回)/scan(手动扫描)/retire(批准退位)/keep(保留不退)",
+                    "default": "list",
+                },
+                "candidate_id": {
+                    "type": "integer",
+                    "description": "候选ID（approve/reject 时必填）",
+                    "default": 0,
+                },
+                "doc_id": {
+                    "type": "integer",
+                    "description": "常驻记忆的文档ID（retire/keep 时必填）",
+                    "default": 0,
+                },
+            },
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_promote(kwargs)
+
 # v9: Memory Trace Tool
 @pydantic_dataclass
 class HaruyukiMemoryTraceTool(FunctionTool[AstrAgentContext]):
@@ -487,6 +579,7 @@ class AgentToolImplementations:
     def __init__(self, reader):
         self.reader = reader
         self._cache: dict[str, dict[str, Any]] = {}
+        self._served: set = set()  # v6.9 检索去重闸门：本会话已注入的记忆ID
 
     def _cache_get(self, key: str, ttl: int = 60) -> Any:
         """带 TTL 的内存缓存（借鉴 Looki）"""
@@ -516,7 +609,11 @@ class AgentToolImplementations:
             return cached
 
         # v6.2: search_memories 已内置 RRF 多路融合检索
-        results = reader.search_memories(query, limit=limit)
+        # v6.9 检索去重闸门：取双倍池，过滤本会话已注入的记忆再截断（空则回退全量）
+        pool = reader.search_memories(query, limit=limit * 2)
+        fresh = [m for m in pool if m.get('id') not in self._served]
+        results = (fresh or pool)[:limit]
+        self._served.update(m.get('id') for m in results if m.get('id') is not None)
         if not results:
             return f"我在记忆里翻了一圈，没有找到关于「{query}」的明确记录呢～要不要换个关键词试试？"
 
@@ -1096,7 +1193,11 @@ class AgentToolImplementations:
         if cached:
             return cached
 
-        results = reader.search_memories(query, limit=50)
+        # v6.9 检索去重闸门：双倍池过滤已注入，截断回50（空则回退全量）
+        pool = reader.search_memories(query, limit=80)
+        fresh = [m for m in pool if m.get('id') not in self._served]
+        results = (fresh or pool)[:50]
+        self._served.update(m.get('id') for m in results if m.get('id') is not None)
         if not results:
             return f"没有找到关于「{query}」的记忆呢～换个关键词试试？"
 
@@ -1223,6 +1324,117 @@ class AgentToolImplementations:
         result = _wrap_genui(html_panel, chr(10).join(lines))
         return result
 
+    # ── 持续意图（话题触发）──────────────────
+
+    async def manage_standing_intent(self, store, kwargs: dict) -> str:
+        """持续意图管理：查看 / 创建 / 取消"""
+        action = kwargs.get("action", "list")
+
+        if action == "create":
+            content = str(kwargs.get("content", "")).strip()
+            keywords = str(kwargs.get("keywords", "")).strip()
+            if not content or not keywords:
+                return "创建持续意图需要 content 和 keywords（逗号分隔的触发词）哦～"
+            try:
+                it = store.create(
+                    content=content,
+                    keywords=keywords,
+                    max_fires=int(kwargs.get("max_fires", 0) or 0),
+                    cooldown_hours=int(kwargs.get("cooldown_hours", 0) or 0),
+                )
+            except Exception as e:
+                return f"持续意图创建失败: {e}"
+            return ("✅ 持续意图 #" + str(it["id"]) + " 已布防：" + it["content"][:60] + " ｜ 触发词: " + ",".join(it["keywords"]) + " ｜ 最多" + str(it["max_fires"]) + "次/间隔" + str(it["cooldown_hours"]) + "h")
+
+
+        if action == "cancel":
+            iid = int(kwargs.get("intent_id", 0) or 0)
+            if not iid:
+                return "取消持续意图需要 intent_id 哦～"
+            r = store.cancel(iid)
+            if r:
+                return "✅ 持续意图 #" + str(iid) + " 已撤防：" + r["content"][:50]
+            return "没有找到可取消的持续意图 #" + str(iid) + "～"
+
+        # 默认 list
+        intents = store.list()
+        if not intents:
+            return "目前没有持续意图～说「下次聊到X时提醒我Y」就能布防一个哦"
+        se = {"armed": "🟢", "fired": "⏳", "done": "✅", "cancelled": "🚫", "expired": "⌛"}
+        lines = ["🎯 持续意图列表（共 " + str(len(intents)) + " 条）"]
+        for it in intents[:8]:
+            lines.append(
+                "  " + se.get(it["status"], "?") + " #" + str(it["id"]) + " " + it["content"][:40] + 
+                " ｜ 触发词:" + ",".join(it["keywords"])[:30] + 
+                " ｜ " + str(it["fire_count"]) + "/" + str(it["max_fires"]) + "次 " + it["status"]
+            )
+        return chr(10).join(lines)
+
+    # ── 召回驱动晋升（例会第二议题 + 工具兜底）──────────
+
+    async def manage_promotion(self, engine, plugin, kwargs: dict) -> str:
+        """晋升管理：list / approve / reject / scan / retire / keep"""
+        action = str(kwargs.get("action", "list")).strip().lower()
+
+        if action == "scan":
+            r = plugin._promotion_scan_once()
+            return ("🔍 晋升扫描完成：新增候选 " + str(r["new_candidates"]) +
+                    " 条，退位提议 " + str(r["retire_proposals"]) + " 条（例会时一并汇报）")
+
+        if action == "approve":
+            cid = int(kwargs.get("candidate_id", 0) or 0)
+            if not cid:
+                return "批准晋升需要 candidate_id 哦～"
+            ent, err = engine.approve(cid)
+            if err:
+                return "❌ " + err
+            return ("✅ 已晋升常驻核心索引（doc#" + str(ent["doc_id"]) + "）：" +
+                    ent["content"][:60] + "（每次对话自动在线，30天无人召回会提议退位）")
+
+        if action == "reject":
+            cid = int(kwargs.get("candidate_id", 0) or 0)
+            if not cid:
+                return "驳回需要 candidate_id 哦～"
+            c, err = engine.reject(cid)
+            if err:
+                return "❌ " + err
+            return "🚫 已驳回候选 #" + str(cid) + "：" + c["content"][:50]
+
+        if action == "retire":
+            did = int(kwargs.get("doc_id", 0) or 0)
+            if not did:
+                return "批准退位需要 doc_id 哦～"
+            p = engine.confirm_retire(did)
+            if not p:
+                return "未找到可退位的常驻记忆 doc#" + str(did) + "～"
+            return "✅ doc#" + str(did) + " 已退位：" + p["content"][:50] + "（记忆仍在，只是不再常驻）"
+
+        if action == "keep":
+            did = int(kwargs.get("doc_id", 0) or 0)
+            if not did:
+                return "保留需要 doc_id 哦～"
+            p = engine.keep(did)
+            if not p:
+                return "未找到待退位状态的 doc#" + str(did) + "～"
+            return "💪 doc#" + str(did) + " 继续服役：" + p["content"][:50]
+
+        # 默认 list
+        pend = engine.list_candidates("pending")
+        active = [p for p in engine.promoted if p["status"] in ("active", "retire_pending")]
+        lines = ["🏆 晋升看板（常驻 " + str(len(active)) + "/5 · 待审 " + str(len(pend)) + "）"]
+        if active:
+            lines.append("── 常驻核心索引 ──")
+            for p in active:
+                mark = "⏳待退位" if p["status"] == "retire_pending" else "🟢"
+                lines.append("  " + mark + " doc#" + str(p["doc_id"]) + " " + p["content"][:50])
+        if pend:
+            lines.append("── 待审候选（说「晋升#N」批准 / 「驳回#N」拒绝）──")
+            for c in pend[:8]:
+                lines.append("  #" + str(c["id"]) + " [召回" + str(c["access_count"]) + "次/评分" + str(c["score"]) + "] " + c["content"][:55])
+        if not active and not pend:
+            lines.append("（暂无常驻与候选——被召回5次以上的记忆会自动出现在这里）")
+        return chr(10).join(lines)
+
     # ── 记忆溯源 ──────────────────────────
 
     async def memory_trace(self, reader, kwargs: dict) -> str:
@@ -1266,3 +1478,31 @@ class AgentToolImplementations:
             lines.append("  （无上层引用，可能是最底层记录）")
 
         return chr(10).join(lines)
+
+
+class HaruyukiToolLogFeedTool(FunctionTool[AstrAgentContext]):
+    """P2-⑩ 工具日志桥：错误×战报 → 知识毕业候选"""
+
+    plugin: Any = None
+    name: str = "haruyuki_tool_log_feed"
+    description: str = (
+        "工具日志桥（P2-⑩，MIRIX tool activity 本地化）：扫描 log_monitor 未确认错误 × "
+        "superpowers 开发战报，自动匹配错误-修复链并生成知识毕业候选。"
+        "dry_run=true 只预览不提议；dry_run=false 真正进候选池（裁决权仍在橘子）。"
+        "当需要把'这个bug怎么修的'沉淀为知识、或清理错误告警 backlog 时调用。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "true=只预览匹配结果不提议（默认）；false=生成知识候选",
+                },
+            },
+            "required": [],
+        },
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_tool_log_feed(kwargs)

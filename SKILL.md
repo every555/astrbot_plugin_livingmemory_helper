@@ -1,11 +1,11 @@
 ---
 name: livingmemory-helper
-description: "春雪记忆系统完整工具指南。当需要回忆、搜索、管理记忆时使用。22个工具覆盖记忆全生命周期。"
+description: "春雪记忆系统完整工具指南。当需要回忆、搜索、管理记忆时使用。20个工具覆盖记忆全生命周期。"
 ---
 
 # 春雪记忆系统 — 工具决策树 v1.0
 
-> 你有 **22 个工具**，不是只有 recall + memorize。
+> 你有 **20 个工具**，不是只有 recall + memorize。
 > 选对工具 = 省时间 + 省 token + 更懂橘子。
 
 ## 一、快速决策表（看到什么 → 用什么）
@@ -23,13 +23,10 @@ description: "春雪记忆系统完整工具指南。当需要回忆、搜索、
 | "这件事从哪来的" / "为什么会想起" | `haruyuki_causal_chain` | 因果证据链 |
 | "这条记忆从哪来的" / 溯源 | `haruyuki_memory_trace` | L3→L2→L1 引用链 |
 | "我有没有说过矛盾的话" / "记忆一致吗" | `haruyuki_conflict_check` | 矛盾检测 |
-| "帮我设个提醒" / "有什么提醒" | `haruyuki_reminder` | 提醒系统 |
-| "记住这个人/项目" / 实体管理 | `haruyuki_ontology_create` | 知识图谱 |
-| "告诉我关于XX的信息" / 实体查询 | `haruyuki_ontology_query` | 实体详情 |
-| "把XX和XX关联" | `haruyuki_ontology_link` | 关系建立 |
-| "列出所有任务/人" | `haruyuki_ontology_search` | 实体搜索 |
-| "XX有哪些相关的" / "谁负责" | `haruyuki_ontology_related` | 关系遍历 |
-| "知识图谱多少数据" | `haruyuki_ontology_stats` | 统计概览 |
+| "帮我设个提醒" / "有什么提醒" | `haruyuki_reminder` | 提醒系统（时间触发） |
+| "下次聊到X时提醒我Y" / "有什么持续意图" | `haruyuki_standing_intent` | 持续意图（话题触发） |
+| "这条记忆常驻吧" / 晋升候选审批 | `haruyuki_promote` | 召回驱动晋升（例会第二议题+兜底） |
+| "记住这个人/项目" / 实体查询关联 / 图谱统计 | `haruyuki_ontology` | 知识图谱统一工具（action: create/query/update/delete/search/link/related/stats，v6.9 八合一） |
 | "整理记忆" / "清理旧记忆" / "沉睡记忆" | `haruyuki_archive` | 归档管理 |
 | "学到了什么" / 经验总结 | `haruyuki_knowledge` (list) | 知识库浏览 |
 | 发现可复用经验 | `haruyuki_knowledge` (propose) | 提议毕业 |
@@ -51,6 +48,8 @@ description: "春雪记忆系统完整工具指南。当需要回忆、搜索、
                     │ search_memory    │ 跨天搜索（广泛）
                     └──────────────────┘
 ```
+**reminder vs standing_intent**：reminder 看时钟（明早9点响），standing_intent 看话题（下次聊到"单词"才响）。时间确定的用前者，情境触发的用后者。
+
 **记住**：recall ≠ search。recall 是精准找某条记忆，search 是广泛找某个话题。
 
 ### 第二层：记忆深度分析
@@ -66,7 +65,9 @@ conflict_check   ─── 冲突检测（记忆矛盾）
 
 ### 第三层：记忆管理
 ```
-reminder           ─── 提醒（创建/查看/取消）
+reminder           ─── 提醒（创建/查看/取消，时间触发）
+standing_intent   ─── 持续意图（话题触发，armed→fired→done）
+promote           ─── 晋升（召回≥5次+7天活跃→例会审批→常驻核心索引，30天冷板凳提议退位）
 archive            ─── 归档（沉睡记忆清理）
 reinforce_memory   ─── 复习（间隔重复）
 knowledge          ─── 知识毕业（经验→永久知识）
@@ -74,12 +75,7 @@ knowledge          ─── 知识毕业（经验→永久知识）
 
 ### 第四层：知识图谱
 ```
-ontology_create  ─── 创建实体
-ontology_query   ─── 查询实体
-ontology_link    ─── 关联实体
-ontology_search  ─── 搜索实体
-ontology_related ─── 关系遍历
-ontology_stats   ─── 统计
+ontology ───────── 八合一（create/query/update/delete/search/link/related/stats）
 ```
 
 ### 第五层：家庭协作
@@ -107,7 +103,7 @@ recall 适合找某条具体记忆，search 适合找某个话题的所有相关
 ### 误区 3：不知道有知识图谱
 ```
 ❌ 橘子："橘子认识哪些人？" → recall_memory("认识的人")
-✅ 橘子："橘子认识哪些人？" → haruyuki_ontology_search("Person")
+✅ 橘子："橘子认识哪些人？" → haruyuki_ontology(action="search", entity_type="Person")
 ```
 知识图谱是结构化数据，比翻记忆条目快且准确。
 
@@ -187,3 +183,6 @@ recall 适合找某条具体记忆，search 适合找某个话题的所有相关
 - **冲突检测** (conflict_check) — 记忆矛盾自动发现
 - **表达风格联动** (expression) — 记忆画像驱动说话方式
 - **家庭协作** (family) — 21 个模块互相反馈
+- **持续意图** (standing_intent) — 借鉴 OpenClaw memory-core：armed→fired→done 状态机 + cooldown/maxFires/expiry 三重频控（v6.6）
+- **召回驱动晋升** (promote) — 借鉴 OpenClaw short-term-promotion
+- **MMR 多样性重排** (mmr_lambda) — 借鉴经典 MMR + TencentDB：Tier 排序后对过采样池(3x)贪心重排（相关性×lam - 重复度×(1-lam)），trigram Jaccard 算相似，mmr_lambda=0 关闭（v6.8）：access_count≥5 且 7 天活跃→例会第二议题审批→常驻核心索引（封顶5）→30天无人召回提议退位，流动制不静默（v6.7）

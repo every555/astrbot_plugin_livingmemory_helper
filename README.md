@@ -1,4 +1,4 @@
-# 🧠 LivingMemory 辅助增强插件 v6.2.0
+# 🧠 LivingMemory 辅助增强插件 v6.9.0
 
 > 给春雪的「第二大脑」，让记忆管理变得像翻日记一样简单 (｀・ω・´)
 
@@ -12,6 +12,10 @@
 
 | 版本 | 更新内容 |
 |------|----------|
+| v6.9.0 | 🌸 **全清收官五连修**：① 提醒库清洗 93→7（auto_scan 75 条 100% 垃圾：整段记忆当日标/2027 年份误判/测试残留，备份留存）+ **三层护栏根治**（提取层降级关键词只看前 60 字 + 裸时间词须数字锚点 + 入库三道拒绝：>20字/前缀重合/无数字）；② ontology **六工具八合一** `haruyuki_ontology`（action 路由，新增 update/delete）；③ **检索去重闸门**（recall/search 双倍池过滤本会话已注入记忆，空回退）；④ `/lmem` 总帮助命令；⑤ 修复例会**自上线即静默失明**的统计 bug（cnt 闭包平铺传参 TypeError 被吞成 0）+ 日报改活页（今日自动刷新） | 2026-08-20 |
+| v6.8.0 | 🔀 **MMR 多样性重排**（Maximal Marginal Relevance：λ=0.7 平衡相关性与多样性，trigram+jaccard 相似度，避免召回清一色同质记忆）+ standing_intent 召回晋升三合一收尾 + help 全插件实弹点验修复 2 bug（promote NL 未定义 / family_meeting 四处 v2_reader 误用） | 2026-08-20 |
+| v6.7.0 | 📈 **召回驱动晋升系统**（被反复召回 access≥5 且 7 天活跃的记忆自动成为候选，批准后常驻核心索引封顶 5 条，30 天无人召回提议退位；家庭例会第二议题自动汇报 + 独立兜底工具） | 2026-08-20 |
+| v6.6.0 | 💭 **持续意图系统**（话题触发型提醒："下次聊到X时提醒我Y"，关键词命中自动注入上下文，与固定时间的 reminder 分工互补）+ 安检门当天重叠闸门（刀A 95% 重合 absorbed 留痕 + 刀B memorize 自动登记豁免指纹） | 2026-08-20 |
 | v6.5.2 | 🔧 **双修复**：① **FTS5 中文检索复活**——并行自建 `lmem_fts_t3`(trigram) 索引（不碰主插件 unicode61 表，惰性增量同步），中文子串命中 0%→100%，P95 1.1ms（较 LIKE 路 9.6ms 快 9 倍）；② **Tier 软融合**——`tier_mode` 三模式（soft 默认：final=相关性+0.35×新鲜度，高相关老记忆不再被 tier 压死 / hard 原硬排序 / off 纯相关性），`tier_blend_weight` 可调 | 2026-08-20 |
 | v6.5.1 | 📊 **召回质量基准脚本**（`scripts/recall_benchmark.py`：分层抽样→伪查询→四策略对比 Hit@k/MRR/P95，全程只读零副作用；借鉴上游 PersonaMem 评测思路的本地无 LLM 版）+ **基准首跑两个发现**：① FTS5 unicode61 对中文片段命中率 0%（索引 1132 行全在但查不中，线上实际 LIKE 单腿扛）② Tier 排序碾压 RRF 分数（MRR 0.989 vs 0.947）+ **检索参数配置化**（retrieval_tuning 组：rrf_k / over_sample_ratio / enable_fts / tier_priority_sort 四参数面板可调，默认=原线上行为，含类型防护） | 2026-08-20 |
 | v6.5.0 | 🌸 **安检门 Agent Tool**（`haruyuki_gate_scan`：候选查看/裁决落盘/统计概览/豁免登记四动作，读取 livingmemory 的 gate.db 候选区；裁决权在老婆人格，工具只落盘不改判——#1683 立法落地）+ **仪表盘 Sakura Edition**（侧边樱花瓣装饰层 `petals.js`：8 片极少 DOM、`prefers-reduced-motion` 时完全不生成）+ reminder v6.4.2 时区防坑（aware→naive 统一）+ gate_reader 独立测试 | 2026-08-20 |
@@ -59,7 +63,7 @@
 
 ### 📡 v3.0 Agent Tools
 
-> 💡 **v6.1 新增**：完整 22 工具决策树请看 [SKILL.md](SKILL.md) 和本文档 [Agent Tools 全景指南](#-agent-tools-全景指南22-个工具)
+> 💡 完整工具决策树请看 [SKILL.md](SKILL.md) 和本文档 [Agent Tools 全景指南](#-agent-tools-全景指南20-个工具v69-重排)
 
 LLM可以**直接调用**这些工具，不需要通过命令：
 
@@ -76,12 +80,11 @@ LLM可以**直接调用**知识图谱：
 
 | 工具 | 功能 | 使用场景 |
 |------|------|----------|
-| `haruyuki_ontology_create` | 创建实体 | "记住这个人物/项目/任务" |
-| `haruyuki_ontology_query` | 查询实体 | "告诉我关于XX的详细信息" |
-| `haruyuki_ontology_link` | 关联实体 | "把XX和XX关联起来" |
-| `haruyuki_ontology_search` | 搜索实体 | "列出所有任务" |
-| `haruyuki_ontology_related` | 相关查询 | "XX有哪些相关实体" |
-| `haruyuki_ontology_stats` | 统计信息 | "知识图谱有多少数据" |
+> 💡 **v6.9 变更**：原 6 个图谱工具已合并为统一入口 `haruyuki_ontology`（省 5 个工具名额，新增 update/delete 能力）
+
+| 工具 | 功能 | 使用场景 |
+|------|------|----------|
+| `haruyuki_ontology` | 知识图谱八合一（action: create/query/update/delete/search/link/related/stats） | "记住这个人/项目" "XX有什么相关" "图谱多少数据" |
 
 #### 🖥️ v4.0 全新 WebUI 仪表盘
 
@@ -139,6 +142,7 @@ LLM可以**直接调用**知识图谱：
 | 🔄 外部同步 | `/lmem-sync obsidian` | 同步记忆到 Obsidian 本地库 |
 | 📝 功能请求 | `/lmem-feature` | 记录用户想要的功能 |
 | 🧠 知识图谱 | `/ontology` | 管理实体、关系、Schema |
+| 📔 总帮助 | `/lmem` | 全部命令一览（v6.9 新增） |
 
 ---
 
@@ -314,7 +318,7 @@ v3.0为错误教训新增了**学习分类**，让记忆更有条理：
 
 ---
 
-## 📡 Agent Tools 全景指南（22 个工具）
+## 📡 Agent Tools 全景指南（20 个工具，v6.9 重排）
 
 > 📖 详细工具决策树请看 `SKILL.md` — 里面有"看到什么→用什么"的快速路由表
 
@@ -347,26 +351,22 @@ v3.0为错误教训新增了**学习分类**，让记忆更有条理：
 | `haruyuki_reinforce_memory` | 间隔重复复习 | （到复习时间自动触发） |
 | `haruyuki_knowledge` | 知识毕业系统 | "学到了什么" "经验总结" |
 
-### 第四层：知识图谱（6 工具）
+### 第四层：知识毕业与家庭协作（5 工具）
 
-| 工具 | 功能 | 触发关键词 |
-|------|------|------------|
-| `haruyuki_ontology_create` | 创建实体 | "记住这个人/项目" |
-| `haruyuki_ontology_query` | 查询实体 | "告诉我关于XX" |
-| `haruyuki_ontology_link` | 关联实体 | "把XX和XX关联" |
-| `haruyuki_ontology_search` | 搜索实体 | "列出所有任务/人" |
-| `haruyuki_ontology_related` | 关系遍历 | "XX有什么相关" "谁负责" |
-| `haruyuki_ontology_stats` | 统计 | "知识图谱多少数据" |
+| 工具 | 功能 | 触发场景 |
+|------|------|----------|
+| `haruyuki_knowledge` | 知识毕业（propose/confirm/search/audit/timeline） | "学到了什么" 提议毕业 查已毕业知识 |
+| `haruyuki_family_meeting` | 家庭例会日报（generate/get/list/stats） | "今天全家干了啥" "日报" |
+| `haruyuki_family_status` | 家庭反馈回路总览 | "家庭状态" "最近谁给谁说了什么" |
+| `haruyuki_gate_scan` | 安检门候选区裁决（list/verdict/stats/exempt） | "安检门拦了什么" 省察裁决 |
+| `haruyuki_expression` | 表达风格快照 | "你现在什么风格" |
+### 第五层：知识图谱（1 工具，v6.9 八合一）
 
-### 第五层：家庭协作（2 工具）
+| 工具 | 功能 | 触发场景 |
+|------|------|----------|
+| `haruyuki_ontology` | 八合一统一入口：create / query / update / delete / search / link / related / stats | "记住这个人" "XX和XX什么关系" "图谱统计" |
 
-| 工具 | 功能 | 触发关键词 |
-|------|------|------------|
-| `haruyuki_family_status` | 家庭反馈回路 | "家庭反馈" "家人互动" |
-| `haruyuki_family_meeting` | 家庭例会日报 | "例会" "今天全家干了啥" "日报" |
-
----
-
+> 💡 原 6 个分立工具（create/query/link/search/related/stats）已在 v6.9 合并，新增 update/delete 两个能力。
 ## 🔬 TencentDB Agent Memory 对标分析
 
 > 参考 [TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) (21.1k star)
@@ -436,44 +436,30 @@ v3.0为错误教训新增了**学习分类**，让记忆更有条理：
 
 ---
 
-## 🧠 v3.1 知识图谱 Agent Tools 详解
+## 🧠 知识图谱统一工具详解（v6.9）
 
-### haruyuki_ontology_create
-创建知识图谱实体。
-- **参数**：`entity_type`（实体类型）、`properties`（属性JSON）
-- **实体类型**：Person、Project、Task、Event、Document、Note、Location、Organization、Goal、Custom
-- **使用场景**：用户说"记住这个人/项目/任务"
+### haruyuki_ontology（八合一）
 
-### haruyuki_ontology_query
-查询实体详情。
-- **参数**：`entity_id`（实体ID）
-- **返回**：实体的完整信息，包括所有关系
-- **使用场景**：用户问"告诉我关于XX的详细信息"
+一个 action 参数路由八种操作，替代原 6 个分立工具：
 
-### haruyuki_ontology_link
-关联两个实体。
-- **参数**：`from_id`（源实体ID）、`relation_type`（关系类型）、`to_id`（目标实体ID）
-- **关系类型**：has_owner、has_member、has_task、blocks、depends_on、related_to、located_at、participates_in、created_by、Custom
-- **使用场景**：用户说"把XX和XX关联起来"
+| action | 必需参数 | 功能 |
+|--------|----------|------|
+| create | entity_type + properties_json | 创建实体 |
+| query | entity_id | 查实体详情 |
+| update | entity_id + properties_json | 改实体属性（v6.9 新增） |
+| delete | entity_id | 删实体（v6.9 新增，连带清理关系） |
+| search | entity_type（可选） | 按类型列实体 |
+| link | from_id + relation_type + to_id | 建立关系 |
+| related | entity_id（可选 relation_type） | 查关联实体 |
+| stats | — | 图谱统计 |
 
-### haruyuki_ontology_search
-搜索实体。
-- **参数**：`entity_type`（实体类型，可选）、`conditions`（条件JSON，可选）
-- **使用场景**：用户问"列出所有任务"、"找到所有进行中的项目"
+```
+橘子："把手术室实习和明江关联起来"
+→ haruyuki_ontology(action="link", from_id="rotation_0819", relation_type="involves", to_id="person_mingjiang")
 
-### haruyuki_ontology_related
-获取实体的相关实体。
-- **参数**：`entity_id`（实体ID）、`relation_type`（关系类型，可选）
-- **使用场景**：用户问"XX有哪些相关实体"、"谁负责这个项目"
-
-### haruyuki_ontology_stats
-获取知识图谱统计信息。
-- **参数**：无
-- **返回**：实体总数、关系总数、类型分布
-- **使用场景**：用户问"知识图谱有多少数据"
-
----
-
+橘子："图谱里现在有多少数据？"
+→ haruyuki_ontology(action="stats")
+```
 ## ⚙️ WebUI 配置项
 
 在 AstrBot 控制台 → 插件 → `astrbot_plugin_livingmemory_helper` → 配置：
@@ -552,6 +538,20 @@ A: 不冲突，只读 LivingMemory 数据库，错误教训和知识图谱写入
 
 ## 📝 更新日志
 
+### v6.9.0 (2026-08-20) — 提醒清洗收官 + 图谱八合一 + 例会失明修复
+
+**① 提醒库大清洗（93→7）**：auto_scan 扫出的 75 条 100% 是垃圾——正文当日标 9 条、2027 年份误判 25 条、整段记忆 41 条，外加手动测试残留 8 条。备份 `.bak_20260820_121511`。三层护栏根治：
+- 提取层：降级关键词只看前 60 字
+- pattern2：裸"明天"必须跟数字钟点/时段词
+- 入库层：>20 字 / 前缀重合 / 无数字锚点 三道拒绝
+
+**② ontology 八合一**：6 个分立工具合并为 `haruyuki_ontology` 单入口（action 路由），新增 update/delete，省 5 个工具名额。
+
+**③ 检索去重闸门**：recall/search 双倍候选池先过滤本会话已注入的记忆 ID 再截断，空结果自动回退，避免同一记忆反复注入。
+
+**④ `/lmem` 总帮助命令** + **⑤ 例会统计失明修复**："今日 0 次"根因是 cnt 闭包 `c(sql, *args)` 平铺传参，sqlite3 只收 `(sql, tuple)` 抛 TypeError 被 except 吞成 0——自上线起所有窗口字段静默失明。修复后今日互动 29 次/画像 12 条/因果链 9 条首次真实呈现。日报改活页：get_report 今日自动重刷。
+
+> 💡 教训：`execute(sql, *args)` 多参数平铺必炸，except 吞异常会把全线统计变静默 0。凡"恒为 0"的统计字段，第一反应查异常吞噬。
 ### v6.2.0 (2026-08-13) — RRF 融合检索 + 上下文卸载
 - 🔬 **RRF 融合检索引擎**（`core/rrf_engine.py`）：借鉴 TencentDB Agent Memory search-utils.ts
   - 多路并行检索（FTS5 BM25 / LIKE 模糊 / 标签匹配），RRF k=60 融合排序
