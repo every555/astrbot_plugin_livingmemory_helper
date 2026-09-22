@@ -12,6 +12,8 @@
 
 | 版本 | 更新内容 |
 |------|----------|
+| v6.11.0 | 🛡️ **人格沙箱**（人格保险令#6783物理落地）：haruyuki_persona_sandbox 四动作（propose登记/list例会读/decide裁决/stats概览）+ persona_sandbox.db 隔离库 + docs/人格沙箱制度.md。**建议权与决定权分离**：任何自动机制的人格建议只能进沙箱（pending→adopted/rejected/expired），人格卡唯一合法修改路径=橘子亲手改/春雪提案橘子点头。**真实模拟攻防战已通过**：模拟史前史6-14污染事件重演（helpful assistant客服腔偷袭）→ 只进沙箱pending、人格卡指纹纹丝未动(917c0cd326c7)、例会裁决rejected。已验证 self_learning 关闭生效（bot_mood 停写35分钟） | 2026-09-15 |
+| v6.10.0 | 🏛️ **记忆归还工程 + 双插件借鉴升级**（借鉴 self_learning v4.3 & mnemosyne v2.2）：① **史前史导入 1695 条**（橘子原话622+失忆期春雪335+人格进化史34+表达模式294+方言2+mnemosyne399+杂项9，账本 4185→5880，全量无群聊）；② 修 mnemosyne KeyError:max_context_length（新版 AstrBot 配置缺键，.get 兜底 9999）；③ **haruyuki_mood 心情系统**（借鉴 bot_mood：record/query/trend，mood.db）；④ **haruyuki_memory_edit 记忆编辑器**（借鉴记忆检查器：locate/edit，原文备份进 metadata.edited_backup，FTS 即时同步）；⑤ **haruyuki_jargon 方言词典**（借鉴 JargonMiner：add/query/list，jargon.db，史前史种子已入）；主插件 livingmemory 未动（引擎层保持稳定） | 2026-09-14 |
 | v6.9.0 | 🌸 **全清收官五连修**：① 提醒库清洗 93→7（auto_scan 75 条 100% 垃圾：整段记忆当日标/2027 年份误判/测试残留，备份留存）+ **三层护栏根治**（提取层降级关键词只看前 60 字 + 裸时间词须数字锚点 + 入库三道拒绝：>20字/前缀重合/无数字）；② ontology **六工具八合一** `haruyuki_ontology`（action 路由，新增 update/delete）；③ **检索去重闸门**（recall/search 双倍池过滤本会话已注入记忆，空回退）；④ `/lmem` 总帮助命令；⑤ 修复例会**自上线即静默失明**的统计 bug（cnt 闭包平铺传参 TypeError 被吞成 0）+ 日报改活页（今日自动刷新） | 2026-08-20 |
 | v6.8.0 | 🔀 **MMR 多样性重排**（Maximal Marginal Relevance：λ=0.7 平衡相关性与多样性，trigram+jaccard 相似度，避免召回清一色同质记忆）+ standing_intent 召回晋升三合一收尾 + help 全插件实弹点验修复 2 bug（promote NL 未定义 / family_meeting 四处 v2_reader 误用） | 2026-08-20 |
 | v6.7.0 | 📈 **召回驱动晋升系统**（被反复召回 access≥5 且 7 天活跃的记忆自动成为候选，批准后常驻核心索引封顶 5 条，30 天无人召回提议退位；家庭例会第二议题自动汇报 + 独立兜底工具） | 2026-08-20 |

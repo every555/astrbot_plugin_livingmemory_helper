@@ -238,3 +238,78 @@ class TestGateReaderExempt:
                 gate2.close()
         finally:
             gr.close()
+
+
+class TestVerdictBatch:
+    """批量裁决（TencentDB batchDedup 思路·0826 B方案）：一次调用全裁完，省察不再逐条往返。"""
+
+    def _reader(self, tmp_path):
+        db = str(tmp_path / "gate.db")
+        _make_db(db)  # id=1 橘子 candidate / id=2 春雪 candidate
+        return GateReader(db)
+
+    def test_batch_mixed(self, tmp_path):
+        gr = self._reader(tmp_path)
+        ret = gr.verdict_batch("1:confirm,2:decline", verdict_word="升级")
+        assert ret["done"] == [[1, "confirm"], [2, "decline"]]
+        assert ret["failed"] == []
+        rows = {r["id"]: r for r in gr.list_candidates(status=None)}
+        assert rows[1]["status"] == "confirmed"
+        assert rows[2]["status"] == "declined"
+
+    def test_batch_lenient_bad_segments(self, tmp_path):
+        """宽容兼容：坏片段/不存在id/非法action → failed，绝不炸整批。"""
+        gr = self._reader(tmp_path)
+        ret = gr.verdict_batch("1:confirm,xyz,99:decline,2:promote")
+        assert ret["done"] == [[1, "confirm"]]
+        assert sorted(ret["failed"]) == sorted(["xyz", "99:decline", "2:promote"])
+
+    def test_batch_empty(self, tmp_path):
+        gr = self._reader(tmp_path)
+        ret = gr.verdict_batch("")
+        assert ret == {"done": [], "failed": []}
+
+    def test_batch_chinese_separator(self, tmp_path):
+        gr = self._reader(tmp_path)
+        ret = gr.verdict_batch("1：confirm；2：decline")
+        assert ret["done"] == [[1, "confirm"], [2, "decline"]]
+
+
+class TestListEvidence:
+    """list 证据包（0826 B方案）：merge_with 预览 + express 标记，省察一眼全裁。"""
+
+    def _reader(self, tmp_path, meta_extra=None):
+        db = str(tmp_path / "gate.db")
+        _make_db(db)
+        if meta_extra is not None:
+            import json
+            meta_json = json.dumps(meta_extra, ensure_ascii=False)
+            conn = sqlite3.connect(db)
+            conn.execute(
+                "INSERT INTO gate_candidates (speaker, content, score, axes, source, status, verdict, metadata, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("橘子", "老婆今晚要做黑丝教学", 0.75, "{}", "user", "candidate", "", meta_json, time.time()),
+            )
+            conn.commit()
+            conn.close()
+        return GateReader(db)
+
+    def test_merge_preview_present(self, tmp_path):
+        gr = self._reader(tmp_path, meta_extra={"merge_with": 1, "jaccard": 0.87})
+        rows = gr.list_candidates(status="candidate")
+        row = [r for r in rows if "黑丝" in r["content"]][0]
+        assert row["merge_with"] == 1
+        assert row["merge_preview"] is not None
+        assert "军令状" in row["merge_preview"]
+
+    def test_merge_preview_missing_target(self, tmp_path):
+        gr = self._reader(tmp_path, meta_extra={"merge_with": 999})
+        rows = gr.list_candidates(status="candidate")
+        row = [r for r in rows if "黑丝" in r["content"]][0]
+        assert row["merge_preview"] is None
+
+    def test_express_flag(self, tmp_path):
+        gr = self._reader(tmp_path, meta_extra={"express": True})
+        rows = gr.list_candidates(status="candidate")
+        row = [r for r in rows if "黑丝" in r["content"]][0]
+        assert row["express"] is True
+

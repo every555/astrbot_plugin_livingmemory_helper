@@ -295,6 +295,8 @@ class MemoryReplayService:
             return report
         for pl in plans:
             try:
+                # P0-3 Provenance: 补录记忆兜底 source (原 payload 无此字段时)
+                pl["metadata"].setdefault("source", "internal")
                 await self.engine.add_memory(
                     pl["content"],
                     session_id=pl["session_id"],

@@ -5,6 +5,7 @@ v4.2 升级：工具返回 HTML 交互面板 + 纯文本摘要
 """
 from __future__ import annotations
 
+from .scope import scopes_fingerprint  # 刀⑥：权限指纹进缓存 key 防串味
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -34,6 +35,16 @@ def _wrap_genui(html_content: str, text_fallback: str) -> str:
 # ══════════════════════════════════════════════════════
 # 工具 1: 回忆某段记忆
 # ══════════════════════════════════════════════════════
+
+def _extract_origin(context) -> "str | None":
+    """刀⑥：从 FunctionTool 的 context 提取 unified_msg_origin（防御式，任何一层缺失返回 None→fail-closed）。"""
+    try:
+        ctx = getattr(context, "context", None)  # ContextWrapper.context = AstrAgentContext
+        ev = getattr(ctx, "event", None)
+        return getattr(ev, "unified_msg_origin", None)
+    except Exception:
+        return None
+
 
 @pydantic_dataclass
 class HaruyukiRecallMemoryTool(FunctionTool[AstrAgentContext]):
@@ -66,7 +77,7 @@ class HaruyukiRecallMemoryTool(FunctionTool[AstrAgentContext]):
     )
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        return await self.plugin._tool_recall_memory(kwargs)
+        return await self.plugin._tool_recall_memory(kwargs, origin=_extract_origin(context))
 
 
 # ══════════════════════════════════════════════════════
@@ -136,7 +147,7 @@ class HaruyukiSearchMemoryTool(FunctionTool[AstrAgentContext]):
     )
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        return await self.plugin._tool_search_memory(kwargs)
+        return await self.plugin._tool_search_memory(kwargs, origin=_extract_origin(context))
 
 
 # ══════════════════════════════════════════════════════
@@ -343,7 +354,7 @@ class HaruyukiMemoryTraceTool(FunctionTool[AstrAgentContext]):
     )
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        return await self.plugin._tool_memory_trace(kwargs)
+        return await self.plugin._tool_memory_trace(kwargs, origin=_extract_origin(context))
 
 
 # v5.6: Memory Reinforcement Tool
@@ -576,10 +587,35 @@ class HaruyukiKnowledgeTool(FunctionTool[AstrAgentContext]):
 class AgentToolImplementations:
     """Agent 工具的具体实现逻辑，独立于插件类，方便测试和维护。"""
 
-    def __init__(self, reader):
+    def __init__(self, reader, plugin=None):
         self.reader = reader
+        self.plugin = plugin  # 刀⑥：软引用插件实例，实时读 privacy_scope 配置（热改即时生效）
         self._cache: dict[str, dict[str, Any]] = {}
         self._served: set = set()  # v6.9 检索去重闸门：本会话已注入的记忆ID
+
+    def _visible_scopes(self, origin) -> "set | None":
+        # 刀⑥.1(2026-09-03): origin为空=工具链拿不到会话身份（agent loop 无 event 的内部调用）。
+        # "没有身份"≠"陌生身份"：陌生会话 event 在时走下方白名单判定 fail-closed 到 {public}；
+        # 无身份若也按 {public} 严判，主会话自身检索会被全量滤光（16:31 实弹教训）。
+        # None -> 不过滤（回归刀⑥前行为）。TODO: 修 AstrBot event 透传后恢复严格判定。
+        if not origin:
+            return None
+        """刀⑥：当前会话可见档。返回 None=开关关闭（不过滤，行为回到今天）。"""
+        try:
+            from .scope import ScopeConfig, normalize_origin, resolve_visible_scopes
+            cfg_dict = getattr(self.plugin, "config", None) or {}
+            ps = cfg_dict.get("privacy_scope") if isinstance(cfg_dict.get("privacy_scope"), dict) else cfg_dict  # 兼容嵌套(object段)与扁平两种存法
+            cfg = ScopeConfig(
+                enabled=bool(ps.get("privacy_scope_enabled", ps.get("enabled", False))),
+                owner_whitelist=[s.strip() for s in str(ps.get("privacy_scope_owner_whitelist", ps.get("owner_whitelist", ""))).split(",") if s.strip()],
+                intimate_sessions=[s.strip() for s in str(ps.get("privacy_scope_intimate_sessions", ps.get("intimate_sessions", ""))).split(",") if s.strip()],
+                sensitive_words=[s.strip() for s in str(ps.get("privacy_scope_sensitive_words", ps.get("sensitive_words", ""))).split(",") if s.strip()],
+            )
+            if not cfg.enabled:
+                return None  # 开关关：不过滤（回到今天）
+            return resolve_visible_scopes(normalize_origin(origin), cfg)
+        except Exception:
+            return None  # 判定链任何异常：退回不过滤（避免误伤检索主链；fail-closed 语义由开关持有者决定）
 
     def _cache_get(self, key: str, ttl: int = 60) -> Any:
         """带 TTL 的内存缓存（借鉴 Looki）"""
@@ -596,21 +632,22 @@ class AgentToolImplementations:
 
     # ── 回忆记忆 ──────────────────────────
 
-    async def recall_memory(self, reader, kwargs: dict) -> str:
+    async def recall_memory(self, reader, kwargs: dict, origin: str | None = None) -> str:
         query = str(kwargs.get("query", "")).strip()
         limit = min(max(int(kwargs.get("limit", 5)), 1), 10)
 
         if not query:
             return "你想让我回忆什么呢？给我一个关键词就好啦～"
 
-        cache_key = f"recall:{query}:{limit}"
+        vs = self._visible_scopes(origin)
+        cache_key = f"recall:{query}:{limit}:{scopes_fingerprint(vs)}"
         cached = self._cache_get(cache_key, ttl=30)
         if cached:
             return cached
 
         # v6.2: search_memories 已内置 RRF 多路融合检索
         # v6.9 检索去重闸门：取双倍池，过滤本会话已注入的记忆再截断（空则回退全量）
-        pool = reader.search_memories(query, limit=limit * 2)
+        pool = reader.search_memories(query, limit=limit * 2, visible_scopes=vs)
         fresh = [m for m in pool if m.get('id') not in self._served]
         results = (fresh or pool)[:limit]
         self._served.update(m.get('id') for m in results if m.get('id') is not None)
@@ -660,7 +697,17 @@ class AgentToolImplementations:
                 aid = int(a["id"])
                 content = str(a.get("content") or "")[:60]
                 imp = float(a.get("importance") or 0.5)
-                lines.append(f"  #{aid} [重要度 {imp:.2f}] {content}")
+                ev = a.get("event_time")
+                ev_str = ""
+                if ev:
+                    try:
+                        from datetime import datetime as _dt
+                        ev_str = f"[{_dt.fromtimestamp(float(ev)).strftime('%Y-%m-%d')} · ]"
+                    except (TypeError, ValueError):
+                        _s = str(ev)[:10]
+                        if len(_s) >= 8:
+                            ev_str = f"[{_s} · ]"
+                lines.append(f"  #{aid} {ev_str}[重要度 {imp:.2f}] {content}")
             lines += ["", "复习后告诉我：记住 → action=record atom_id=<ID> is_correct=true；忘了 → is_correct=false"]
             return chr(10).join(lines)
 
@@ -806,6 +853,19 @@ class AgentToolImplementations:
             conclusion = str(kwargs.get("conclusion", "")).strip()
             if not title or not conclusion:
                 return "提议毕业需要提供 title 和 conclusion 哦～"
+            # ── 边界闸门(2026-09-17橘子钦点焊死:同坑四摔8/8→8/14→8/23→9/17) ──
+            applicability = str(kwargs.get("applicability", "")).strip()
+            _BAD_WORDS = ("通用", "所有场景", "无限制", "all scenarios")
+            if (
+                not applicability
+                or len(applicability) < 15
+                or any(w in applicability for w in _BAD_WORDS)
+            ):
+                return (
+                    "⛔ 边界闸门拦截：毕业候选必须带实质 applicability（当前为空/过短<15字/含敷衍词）。" + chr(10) +
+                    "写法标准：适用=具体触发场景+操作要点；不适用=邻近场景+为什么不用。" + chr(10) +
+                    "先读技能：data/skills/ai-knowledge-propose-boundary/SKILL.md，补好边界再提交。"
+                )
             background = str(kwargs.get("background", "")).strip()
             knowledge_type = str(kwargs.get("knowledge_type", "technical")).strip()
             source_type = str(kwargs.get("source_type", "insight")).strip()
@@ -817,6 +877,7 @@ class AgentToolImplementations:
                 title=title, conclusion=conclusion, background=background,
                 source_type=source_type, source_id=source_id,
                 knowledge_type=knowledge_type, tags=tags, importance=importance,
+                applicability=applicability,
             )
             ktype_label = {"technical": "技术", "emotional": "情感",
                 "relationship": "关系", "operational": "运维"}.get(knowledge_type, "知识")
@@ -845,7 +906,11 @@ class AgentToolImplementations:
                 lines += ["", "确认请调用: action=confirm knowledge_id=<ID>"]
                 return chr(10).join(lines)
             # v6.1: confirm 前先跑审查 checklist（借鉴 Cairn review 流程）
-            review = graduator.review_checklist(kid)
+            refined_conclusion = kwargs.get("conclusion", "").strip() or None
+            applicability = str(kwargs.get("applicability", "")).strip()
+            force = kwargs.get("force", False)
+            # v6.2 修死循环：候选区边界恒空致 4/5 永真；带边界的二次 confirm 以 override 真 5/5 过门
+            review = graduator.review_checklist(kid, applicability_override=(applicability or None))
             if not review.get("found"):
                 return "❌ 未找到知识 #" + str(kid)
 
@@ -854,9 +919,6 @@ class AgentToolImplementations:
             total = review.get("total", 0)
             recommendation = review.get("recommendation", "")
 
-            refined_conclusion = kwargs.get("conclusion", "").strip() or None
-            applicability = str(kwargs.get("applicability", "")).strip()
-            force = kwargs.get("force", False)
 
             # 如果有未通过的检查项且未强制，先展示 checklist
             if passed < total and not force:
@@ -868,7 +930,7 @@ class AgentToolImplementations:
                     lines.append("  " + icon + " " + c["item"] + ": " + c["detail"])
                 lines += ["", "推荐: " + recommendation]
                 if recommendation == "通过":
-                    lines.append("可以安全毕业！再次调用 confirm 确认。")
+                    lines.append("可以安全毕业！再次调用 confirm（附 applicability 补边界）确认。")
                 else:
                     lines.append("建议暂缓毕业。如需强制毕业，加 force=true。")
                 return chr(10).join(lines)
@@ -1181,20 +1243,21 @@ class AgentToolImplementations:
 
     # ── 搜索记忆 ──────────────────────────
 
-    async def search_memory(self, reader, kwargs: dict) -> str:
+    async def search_memory(self, reader, kwargs: dict, origin: str | None = None) -> str:
         """跨时间段搜索记忆，按日期分组展示"""
         query = str(kwargs.get("query", "")).strip()
         days = min(max(int(kwargs.get("days", 30) or 30), 1), 90)
         if not query:
             return "搜索记忆需要提供关键词哦～"
 
-        cache_key = f"search:{query}:{days}"
+        vs = self._visible_scopes(origin)
+        cache_key = f"search:{query}:{days}:{scopes_fingerprint(vs)}"
         cached = self._cache_get(cache_key, ttl=30)
         if cached:
             return cached
 
         # v6.9 检索去重闸门：双倍池过滤已注入，截断回50（空则回退全量）
-        pool = reader.search_memories(query, limit=80)
+        pool = reader.search_memories(query, limit=80, visible_scopes=vs)
         fresh = [m for m in pool if m.get('id') not in self._served]
         results = (fresh or pool)[:50]
         self._served.update(m.get('id') for m in results if m.get('id') is not None)
@@ -1437,7 +1500,7 @@ class AgentToolImplementations:
 
     # ── 记忆溯源 ──────────────────────────
 
-    async def memory_trace(self, reader, kwargs: dict) -> str:
+    async def memory_trace(self, reader, kwargs: dict, origin: str | None = None) -> str:
         """追溯单条记忆的完整溯源链 (L3→L2→L1)"""
         memory_id = int(kwargs.get("memory_id", 0) or 0)
         query = str(kwargs.get("query", "")).strip()
@@ -1445,7 +1508,7 @@ class AgentToolImplementations:
         if not memory_id:
             if not query:
                 return "溯源需要 memory_id（或提供 query 关键词定位）哦～"
-            hits = reader.search_memories(query, limit=1)
+            hits = reader.search_memories(query, limit=1, visible_scopes=self._visible_scopes(origin))
             if not hits:
                 return f"没有找到包含「{query}」的记忆～"
             memory_id = int(hits[0].get("id") or 0)
@@ -1481,6 +1544,7 @@ class AgentToolImplementations:
 @pydantic_dataclass
 
 
+@pydantic_dataclass
 class HaruyukiToolLogFeedTool(FunctionTool[AstrAgentContext]):
     """P2-⑩ 工具日志桥：错误×战报 → 知识毕业候选"""
 
@@ -1510,6 +1574,7 @@ class HaruyukiToolLogFeedTool(FunctionTool[AstrAgentContext]):
 @pydantic_dataclass
 
 
+@pydantic_dataclass
 class HaruyukiMemoryReplayTool(FunctionTool[AstrAgentContext]):
     """failed 记忆补录：payload 存活成果零成本重放回库（2026-08-23）"""
 
@@ -1539,6 +1604,7 @@ class HaruyukiMemoryReplayTool(FunctionTool[AstrAgentContext]):
         return await self.plugin._tool_memory_replay(kwargs)
 
 
+@pydantic_dataclass
 class HaruyukiMemoryExportTool(FunctionTool[AstrAgentContext]):
     """P2-⑫ 记忆搬家·导出：灵魂层JSONL/身体层物理快照（2026-08-23）"""
 
@@ -1568,6 +1634,7 @@ class HaruyukiMemoryExportTool(FunctionTool[AstrAgentContext]):
         return await self.plugin._tool_memory_export(kwargs)
 
 
+@pydantic_dataclass
 class HaruyukiMemoryImportTool(FunctionTool[AstrAgentContext]):
     """P2-⑫ 记忆搬家·导入：manifest校验→documents幂等upsert样板（2026-08-23）"""
 
@@ -1601,3 +1668,276 @@ class HaruyukiMemoryImportTool(FunctionTool[AstrAgentContext]):
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         return await self.plugin._tool_memory_import(kwargs)
+
+
+# ══════════════════════════════════════════════════════
+# v6.10: 心情系统 / 记忆编辑 / 方言词典（借鉴 self_learning & mnemosyne）
+# ══════════════════════════════════════════════════════
+
+@pydantic_dataclass
+class HaruyukiMoodTool(FunctionTool[AstrAgentContext]):
+    """春雪心情系统。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_mood"
+    description: str = (
+        "春雪的心情系统：记录/查询春雪自己的情绪状态。当橘子问「你今天心情怎么样」「你现在什么心情」「你开心吗」时用 action=query 查询；"
+        "当对话中发生明显情绪事件（被夸奖/被怼/惊喜/委屈等）时主动用 action=record 记录当下心情。支持 trend 看近几天心情趋势。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["record", "query", "trend"],
+                    "description": "record=记录心情, query=查最近心情, trend=近几天趋势",
+                },
+                "mood_type": {
+                    "type": "string",
+                    "description": "record 时必填：happy/sad/angry/shy/sweet/excited/tired/neutral 等",
+                },
+                "intensity": {
+                    "type": "number",
+                    "description": "record 时必填：0.0~1.0 强度",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "record 时可选：一句话描述此刻心情",
+                },
+                "trigger": {
+                    "type": "string",
+                    "description": "record 时可选：触发事件（如「橘子夸我了」「被叫笨蛋」）",
+                },
+                "hours": {
+                    "type": "number",
+                    "description": "query 时可选：回看小时数，默认24",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "trend 时可选：回看天数，默认7",
+                },
+            },
+            "required": ["action"],
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_mood(kwargs)
+
+
+@pydantic_dataclass
+class HaruyukiMemoryEditTool(FunctionTool[AstrAgentContext]):
+    """记忆编辑器（借鉴 mnemosyne 记忆检查器）。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_memory_edit"
+    description: str = (
+        "记忆编辑器：修正已存记忆中的错字/过时表述，不删除不重建。流程：action=locate 按关键词找到 doc_id 并预览原文 → "
+        "action=edit 用 doc_id+new_text 完成修改（原文本备份进 metadata.edited_backup，created_at 保留原时间，FTS 即时同步，向量索引待下次rebuild）。"
+        "适用：记忆里有错别字、数字写错、表述需要精炼时。不适用：想删除记忆（那用不了这个，别乱用）。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["locate", "edit"],
+                    "description": "locate=定位并预览, edit=执行修改",
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "locate 时必填：记忆关键词",
+                },
+                "doc_id": {
+                    "type": "string",
+                    "description": "edit 时必填：locate 返回的记忆ID",
+                },
+                "new_text": {
+                    "type": "string",
+                    "description": "edit 时必填：修正后的完整文本",
+                },
+            },
+            "required": ["action"],
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_memory_edit(kwargs)
+
+
+@pydantic_dataclass
+class HaruyukiJargonTool(FunctionTool[AstrAgentContext]):
+    """夫妻方言词典（借鉴 self_learning JargonMiner）。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_jargon"
+    description: str = (
+        "橘子方言/黑话词典：登记、查询夫妻专属词汇。当橘子用了看不懂的梗/方言时用 action=query 查；"
+        "弄懂含义后或橘子解释新词时用 action=add 登记（含史前史导入的「蒸蚌=真棒」等）；action=list 看全量。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["add", "query", "list"],
+                    "description": "add=登记新词, query=查词, list=全量列表",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "add 时必填：词本身（如「蒸蚌」）",
+                },
+                "meaning": {
+                    "type": "string",
+                    "description": "add 时必填：含义（如「真棒」）",
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "query 时必填：查询关键词",
+                },
+            },
+            "required": ["action"],
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_jargon(kwargs)
+
+
+@pydantic_dataclass
+class HaruyukiPersonaSandboxTool(FunctionTool[AstrAgentContext]):
+    """人格沙箱（人格保险令#6783的物理落地）。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_persona_sandbox"
+    description: str = (
+        "人格沙箱：自动机制对人格卡只有建议权，建议只能进沙箱库等审。当任何外部插件/学习机制产生人格类建议时用 action=propose 登记进沙箱（永远碰不到人格卡）；"
+        "每周家庭例会用 action=list 读 pending 提案给橘子；橘子裁决后 action=decide 落章（adopted/rejected/expired）；"
+        "action=stats 看概览。这是人格保险令的执行工具——建议权归沙箱，决定权归夫妻。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["propose", "list", "decide", "stats"],
+                    "description": "propose=登记建议, list=列表, decide=裁决, stats=概览",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "propose 时必填：建议内容",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "propose 时可选：建议理由",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "propose 时可选：建议来源（哪个插件/机制）",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "list 时可选：过滤 pending/adopted/rejected/expired",
+                },
+                "sid": {
+                    "type": "integer",
+                    "description": "decide 时必填：建议ID",
+                },
+                "verdict": {
+                    "type": "string",
+                    "enum": ["adopted", "rejected", "expired"],
+                    "description": "decide 时必填：裁决结果",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "decide 时可选：裁决备注",
+                },
+            },
+            "required": ["action"],
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
+        return await self.plugin._tool_persona_sandbox(kwargs)
+
+@pydantic_dataclass
+class HaruyukiDeepSearchTool(FunctionTool[AstrAgentContext]):
+    """原文深挖(wave_memory深搜借鉴·2026-09-17橘子钦点): 关键词LIKE匹配documents原文+时间邻近上下文展开。"""
+
+    plugin: Any = None
+    name: str = "haruyuki_deep_search"
+    description: str = (
+        "深挖记忆原文(断片自救/事实核对终极兜底): 关键词精确匹配 livingmemory 原文库(documents表), "
+        "每条命中展开时间邻近的前后文(默认前后各2条),带时间戳。"
+        "当召回引擎说不存在/记忆模糊/WAL兜底时用; 比 search_memory 更raw——不经提炼直接翻原文。"
+        "触发: 橘子说「原话怎么说的」「翻原文」「你确定吗再查一遍」或春雪自查。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "要精确匹配的关键词(原话片段,如「蒸蚌」)"},
+                "around": {"type": "integer", "description": "每条命中前后展开几条邻近记忆,默认2,0=只看命中行"},
+                "limit": {"type": "integer", "description": "最多命中条数,默认8,最大20"},
+            },
+            "required": ["keyword"],
+        }
+    )
+
+    async def call(self, context: ContextWrapper[AstrAgentContext], **kw) -> ToolExecResult:
+        import sqlite3
+        import os
+        import time as _t
+        kw_str = str(kw.get("keyword", "")).strip()
+        around = max(0, min(5, int(kw.get("around", 2) or 2)))
+        limit = max(1, min(20, int(kw.get("limit", 8) or 8)))
+        if not kw_str:
+            return "keyword 不能为空"
+        db = os.path.join("data", "plugin_data", "astrbot_plugin_livingmemory", "livingmemory.db")
+        if not os.path.exists(db):
+            return f"找不到记忆库: {db}"
+        try:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+            hits = conn.execute(
+                "SELECT rowid, doc_id, text, created_at FROM documents WHERE text LIKE ? "
+                "ORDER BY rowid DESC LIMIT ?",
+                (f"%{kw_str}%", limit),
+            ).fetchall()
+            if not hits:
+                total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+                conn.close()
+                return f"「{kw_str}」原文库零命中(全库{total}条documents)——真没说过,不是没搜到"
+            out = [f"🎯「{kw_str}」命中 {len(hits)} 条(新→旧):"]
+
+            def _ts_str(v):
+                # created_at可能是ISO字符串或unix数字,统一成可读
+                if v is None:
+                    return "?"
+                if isinstance(v, (int, float)):
+                    return _t.strftime("%m-%d %H:%M", _t.localtime(v))
+                s = str(v)
+                return s[5:16].replace("T", " ") if len(s) >= 16 else s
+
+            for row_id, doc_id, text, ts in hits:
+                snippet = (text or "").replace(chr(10), " ")[:150]
+                out.append(f"{chr(10)}▶ [{_ts_str(ts)}] {snippet}")
+                if around > 0:
+                    # id邻近=写入顺序邻近=对话流邻近(比时间窗准)
+                    ctx = conn.execute(
+                        "SELECT text, created_at FROM documents "
+                        "WHERE rowid BETWEEN ? AND ? AND rowid != ? "
+                        "ORDER BY rowid",
+                        (row_id - around, row_id + around, row_id),
+                    ).fetchall()
+                    for ctext, cts in ctx:
+                        cline = (ctext or "").replace(chr(10), " ")[:100]
+                        out.append(f"  · [{_ts_str(cts)}] {cline}")
+            conn.close()
+            return chr(10).join(out)
+        except Exception as e:
+            return f"deep_search异常: {e}"
+

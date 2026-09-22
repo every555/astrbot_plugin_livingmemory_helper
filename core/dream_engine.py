@@ -357,6 +357,10 @@ class DreamEngine:
         if force:
             return self._acquire_lock()
 
+        # P1-① 橘子拍板(2026-08-30)：整理跟橘子班表——20:00 上班才整理，凌晨白天不跑
+        if not (20 <= datetime.now().hour < 24):
+            return None
+
         # 时间门控：距上次清洗是否够 min_hours
         last_at = self._read_last_consolidated_at()
         if (now_ms - last_at) / 3600000.0 < self.min_hours:

@@ -288,7 +288,8 @@ class HaruyukiGateScanTool(FunctionTool[AstrAgentContext]):
     description: str = (
         "话分量感知系统·安检门候选区管理。当橘子问「安检门拦了什么」「有什么候选」"
         "「看看待审记忆」时调用 action=list；省察时对候选做裁决用 action=verdict"
-        "（裁决权在老婆人格，本工具只落盘不改判）；看拦载统计用 action=stats；"
+        "（裁决权在老婆人格，本工具只落盘不改判）；一批同类处置用 action=verdict_batch"
+        "（batch=12:confirm,13:decline 一次全裁完，省 token）；看拦载统计用 action=stats；"
         "橘子问「审查部门咋没干活」「省察考勤」时用 action=audit 查省察审计日志。"
     )
     parameters: dict = Field(
@@ -297,7 +298,7 @@ class HaruyukiGateScanTool(FunctionTool[AstrAgentContext]):
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "list(列候选，默认)/verdict(裁决一条)/stats(统计概览)/audit(省察考勤日志)/exempt(豁免登记：老婆memorize完把原句喂进来)",
+                    "description": "list(列候选，默认)/verdict(裁决一条)/verdict_batch(批量裁决)/stats(统计概览)/audit(省察考勤日志)/exempt(豁免登记：老婆memorize完把原句喂进来)",
                     "default": "list",
                 },
                 "content": {
@@ -308,6 +309,11 @@ class HaruyukiGateScanTool(FunctionTool[AstrAgentContext]):
                     "type": "string",
                     "description": "list 时过滤状态: candidate(待审)/confirmed(已入库)/declined(已驳回)，留空查全部",
                     "default": "candidate",
+                },
+                "batch": {
+                    "type": "string",
+                    "description": "verdict_batch 时必填：批量裁决串，格式 12:confirm,13:decline（中文逗号冒号也认；verdict_word/note 全批共用）",
+                    "default": "",
                 },
                 "candidate_id": {
                     "type": "integer",

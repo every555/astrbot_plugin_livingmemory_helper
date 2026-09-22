@@ -81,7 +81,9 @@ class GateReader:
                 rows = conn.execute(
                     "SELECT * FROM gate_candidates ORDER BY score DESC, id DESC LIMIT ?", (limit,)
                 ).fetchall()
-            return [self._fmt(r) for r in rows]
+            out = [self._fmt(r) for r in rows]
+            self._attach_merge_preview(conn, out)
+            return out
         except sqlite3.Error:
             return []  # 表还没建（极端：库在表不在）
 
@@ -166,6 +168,67 @@ class GateReader:
         except sqlite3.Error:
             return False
 
+    def verdict_batch(self, batch: str, verdict_word: str = "", note: str = "") -> dict:
+        """批量裁决（TencentDB batchDedup 思路·0826 B方案）。
+
+        batch 格式："12:confirm,13:decline"（紧凑省 token；中文逗号/冒号也认）。
+        verdict_word/note 全批共用——同类处置一批裁，特殊单条仍走单条 verdict。
+        宽容兼容：解析失败片段/不存在id/非法action → 记入 failed，绝不炸整批。
+        """
+        done: list = []
+        failed: list = []
+        if not (batch or "").strip():
+            return {"done": done, "failed": failed}
+        normalized = (batch or "").replace("；", ",").replace("，", ",").replace("：", ":").replace(";", ",")
+        for seg in normalized.split(","):
+            seg = seg.strip()
+            if not seg:
+                continue
+            if ":" not in seg:
+                failed.append(seg)
+                continue
+            cid_s, action = seg.rsplit(":", 1)
+            try:
+                cid = int(cid_s.strip())
+            except ValueError:
+                failed.append(seg)
+                continue
+            action = action.strip().lower()
+            if action not in ("confirm", "decline"):
+                failed.append(seg)
+                continue
+            if self.verdict(cid, action=action, verdict_word=verdict_word, note=note):
+                done.append([cid, action])
+            else:
+                failed.append(seg)
+        return {"done": done, "failed": failed}
+
+    def _attach_merge_preview(self, conn, rows: list[dict]) -> None:
+        """证据包·合并预览：merge_with 指向候选的内容片段，一次 IN 批量查（防 N+1）。
+        目标不存在/库读不了 → merge_preview=None 安静空（宽容兼容，不炸 list）。"""
+        ids = {r["merge_with"] for r in rows if r.get("merge_with")}
+        if not ids:
+            for r in rows:
+                r["merge_preview"] = None
+            return
+        try:
+            ph = ",".join("?" * len(ids))
+            found = {
+                int(i): (c or "")
+                for i, c in conn.execute(
+                    f"SELECT id, content FROM gate_candidates WHERE id IN ({ph})",
+                    tuple(ids),
+                )
+            }
+        except sqlite3.Error:
+            found = {}
+        for r in rows:
+            tgt = r.get("merge_with")
+            if tgt is None:
+                r["merge_preview"] = None
+                continue
+            frag = " ".join((found.get(int(tgt)) or "").split())[:30]
+            r["merge_preview"] = f"#{tgt}:{frag}" if frag else None
     def _learn_nouns(self, conn: sqlite3.Connection, text: str, speaker: str) -> None:
         """confirm 反馈 → 名词记频（gate.db learned_nouns 表）。
         count>=2 毕业；本体重载后并入 +0.3 高权级。任何异常安静吞掉。"""
@@ -243,6 +306,8 @@ class GateReader:
         meta = json.loads(d.get("metadata") or "{}")
         d["metadata"] = meta
         d["repeat_count"] = int(meta.get("repeat_count", 1))
+        d["merge_with"] = meta.get("merge_with") or None
+        d["express"] = bool(meta.get("express", False))
         return d
 
     def close(self) -> None:

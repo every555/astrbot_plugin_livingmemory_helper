@@ -315,6 +315,7 @@ class LivingMemoryReader:
                     "tags": tags,
                     "status": "active",
                     "session_id": meta.get("session_id", ""),
+            "privacy_scope": meta.get("privacy_scope"),
                     "source": "document",
                 }
         except Exception as e:
@@ -521,7 +522,7 @@ class LivingMemoryReader:
         conn.close()
         return lists
 
-    def search_memories(self, query: str, limit: int = 10):
+    def search_memories(self, query: str, limit: int = 10, visible_scopes=None):
         """【v6.2】RRF 多路融合检索 — 内化多路 + RRF 融合 + Tier 排序。
 
         升级路径：
@@ -586,6 +587,56 @@ class LivingMemoryReader:
             for r in results:
                 r["_final"] = r.get("_rrf_score", 0.0) / max_s + w * tn.get(r.get("tier", 3), 0.0)
             results.sort(key=lambda r: r.get("_final", 0.0), reverse=True)
+        # ── v6.9: Recency 时间衰减（Generative Agents 三权重补齐：relevance×importance×recency）──
+        # exp(-age_hours/半衰期)：今天≈1.0，昨天≈0.7，上周≈0.03（默认半衰48h）。
+        # soft: _final += rec_w × recency；hard: recency 作同档第三排序键；off: 只挂字段不参与排序（off=纯相关性语义）。
+        # recency_weight=0 或 halflife=0 → 完全关闭，行为精确回到 v6.8。
+        rec_w = float(self._cfg_get("recency_weight", 0.2))
+        halflife_h = float(self._cfg_get("recency_halflife_hours", 48))
+        if rec_w > 0 and halflife_h > 0 and results:
+            import math as _math
+            import time as _time
+            import datetime as _dt
+
+            def _ts_of(v):
+                """把 created_at（unix秒/ISO字符串/日期）解析成 epoch 秒，失败返回 None。"""
+                try:
+                    if isinstance(v, (int, float)) and v > 1e9:
+                        return float(v)
+                    s = str(v or "").strip().replace("Z", "")
+                    if not s:
+                        return None
+                    try:
+                        return _dt.datetime.fromisoformat(s).timestamp()
+                    except ValueError:
+                        pass
+                    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+                        try:
+                            return _dt.datetime.strptime(s, fmt).timestamp()
+                        except ValueError:
+                            continue
+                except Exception:
+                    pass
+                return None
+
+            _now = _time.time()
+            for r in results:
+                _ts = _ts_of(r.get("created_at"))
+                if _ts is None:
+                    r["_recency"] = 0.5  # 时间缺失→中性，不奖不罚
+                else:
+                    _age_h = max(0.0, (_now - _ts) / 3600.0)
+                    r["_recency"] = round(_math.exp(-_age_h / halflife_h), 4)
+            if mode == "soft":
+                for r in results:
+                    r["_final"] = r.get("_final", r.get("_rrf_score", 0.0)) + rec_w * r["_recency"]
+                results.sort(key=lambda r: r.get("_final", 0.0), reverse=True)
+            elif mode == "hard":
+                _tw = {0: 1000, 1: 100, 2: 10, 3: 1}
+                results.sort(
+                    key=lambda r: (_tw.get(r.get("tier", 3), 0), r.get("_rrf_score", 0), r.get("_recency", 0.5)),
+                    reverse=True,
+                )
         # ── v6.8: MMR 多样性重排（对过采样池重排后再截断，相似重复让位多样）──
         mmr_lambda = float(self._cfg_get("mmr_lambda", 0.7))
         if mmr_lambda > 0 and len(results) > limit:
@@ -624,6 +675,11 @@ class LivingMemoryReader:
                     logger.debug(f"[LMHelper v6.2] atom 强化跳过: {e}")
                 conn.commit()
                 conn.close()
+
+        # 刀⑥ 隐私分档：出口统一过滤（visible_scopes=None 时零行为变化；开关语义由调用方持有）
+        if visible_scopes is not None:
+            from ..core.scope import filter_results_by_scopes
+            results = filter_results_by_scopes(results, visible_scopes)
 
         return results[:limit]
 
@@ -716,14 +772,6 @@ class LivingMemoryReader:
         conn.close()
         tier_names = {0: "L0_工作记忆", 1: "L1_活跃记忆", 2: "L2_情景记忆", 3: "L3_归档记忆"}
         return {tier_names.get(r["memory_tier"], f"未知_{r['memory_tier']}"): r["c"] for r in rows}
-        conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM documents WHERE id = ?", (memory_id,)
-        ).fetchone()
-        conn.close()
-        if row:
-            return self._format_row(dict(row))
-        return None
 
     def get_stats_for_date(self, date_str: str) -> dict:
         conn = self._connect()
@@ -773,6 +821,29 @@ class LivingMemoryReader:
             for t in topics:
                 tags.add(t)
         return sorted(tags)
+
+    def get_tag_stats(self, limit: int = 50) -> list:
+        """v6.2: One-pass tag statistics - Counter over a single table scan.
+        Also fixes LIKE fuzzy-match false positives of the old pattern.
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT metadata FROM memory_atoms WHERE metadata IS NOT NULL AND status='active'"
+            ).fetchall()
+        except Exception:
+            rows = conn.execute(
+                "SELECT metadata FROM documents WHERE metadata IS NOT NULL"
+            ).fetchall()
+        conn.close()
+        from collections import Counter
+        counter = Counter()
+        for r in rows:
+            meta = self._parse_meta(r[0])
+            for t in meta.get("topics", []):
+                if t:
+                    counter[t] += 1
+        return [{"name": t, "count": c} for t, c in counter.most_common(limit)]
 
     def graph_enhanced_recall(self, doc_ids: list, limit: int = 3) -> list:
         """【v5.2】图增强召回 — 通过共享节点找到关联记忆
@@ -940,6 +1011,7 @@ class LivingMemoryReader:
             "key_facts": meta.get("key_facts", []),
             "sentiment": meta.get("sentiment", ""),
             "session_id": meta.get("session_id", ""),
+            "privacy_scope": meta.get("privacy_scope"),
             "interaction_type": meta.get("interaction_type", ""),
             "tier": row.get("memory_tier", 1),
             "access_count": row.get("access_count", 0),
@@ -1030,16 +1102,18 @@ class LivingMemoryReader:
         conn = self._connect()
         rows = conn.execute(
             """
-            SELECT id, content, importance, reinforcement_state, reinforcement_count
+            SELECT id, content, importance, reinforcement_state, reinforcement_count, event_time
             FROM memory_atoms
             WHERE status = 'active'
               AND tier >= 2
               AND reinforcement_state IS NOT NULL
               AND reinforcement_state != ''
+              AND json_valid(reinforcement_state) = 1
+              AND json_extract(reinforcement_state, '$.next_review_at') <= ?
             ORDER BY importance DESC
             LIMIT ?
             """,
-            (limit * 2,),
+            (now, limit * 2,),
         ).fetchall()
         conn.close()
 
@@ -2054,8 +2128,31 @@ class LivingMemoryReader:
 
             # 删除次要记忆
             deleted = 0
+            # 家规(2026-09-07 橘子)：不管记忆有多久都不能删。合并前整行备份到
+            # memory_merge_backup（原文/元数据零丢失，随时可恢复），再移除原行避免检索重复。
+            import json as _jb
+            import time as _jt
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS memory_merge_backup (
+                            backup_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            original_id INTEGER,
+                            merged_into INTEGER,
+                            row_json TEXT,
+                            backed_at REAL
+                        )"""
+            )
             for sid in secondary_ids:
                 try:
+                    row = conn.execute("SELECT * FROM documents WHERE id = ?", (sid,)).fetchone()
+                    if row is not None:
+                        try:
+                            row_d = dict(row)
+                        except (TypeError, ValueError):
+                            row_d = {"raw": str(row)}
+                        conn.execute(
+                            "INSERT INTO memory_merge_backup (original_id, merged_into, row_json, backed_at) VALUES (?,?,?,?)",
+                            (sid, primary_id, _jb.dumps(row_d, ensure_ascii=False, default=str), _jt.time()),
+                        )
                     conn.execute("DELETE FROM documents WHERE id = ?", (sid,))
                     deleted += 1
                 except Exception:

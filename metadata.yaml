@@ -1,4 +1,5 @@
 name: astrbot_plugin_livingmemory_helper
+display_name: "记忆管家"
 desc: LivingMemory 辅助增强插件：记忆系统 + 知识毕业 + 图谱 + 梦境 + Agent Tools
 version: 6.9.0
 author: 春雪

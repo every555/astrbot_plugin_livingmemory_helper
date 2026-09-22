@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="google" content="notranslate">
 <title>LivingMemory 控制台 v5.7</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -11,7 +12,10 @@
 <script>window.__VUE_DEVTOOLS_GLOBAL_HOOK__ = false;</script>
 <!-- v5.8perf: graph-2d.js 改为懒加载，见 ensureGraph2D() -->
 <script src="petals.js"></script>
+<!-- fix: 静态引用根治懒加载 60s token 过期 401（服务端自动配 token） -->
+<script src="graph-2d.js"></script>
 <style>
+[v-cloak]{display:none!important}
 /* ===== Global Reset ===== */
 *{margin:0;padding:0;box-sizing:border-box}
 
@@ -471,7 +475,7 @@ body.light-theme .nav-item.active{background:linear-gradient(135deg,rgba(232,86,
 
 </head>
 <body>
-<div id="app">
+<div id="app" v-cloak>
   <!-- Toast Container -->
   <div class="toast-container">
     <div v-for="(toast,i) in toasts" :key="i" :class="'toast '+toast.type">{{toast.msg}}</div>
@@ -1161,6 +1165,40 @@ body.light-theme .nav-item.active{background:linear-gradient(135deg,rgba(232,86,
         </div>
       </div>
 
+      <!-- ==================== LOGS (v6.1 全链路日志) ==================== -->
+      <div v-show="route==='logs'" class="page-panel" style="padding:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+          <h3 style="margin:0;">📜 全链路日志</h3>
+          <button v-for="f in [['all','全部'],['req','请求'],['warn','警告'],['error','错误'],['route','跳转'],['console','Console'],['boot','启动']]" :key="f[0]"
+            @click="logFilter=f[0]; logFindRid=''; refreshLogs()"
+            :style="{padding:'3px 10px',borderRadius:'12px',border:'1px solid var(--text-dim)',cursor:'pointer',fontSize:'12px',
+                     background:logFilter===f[0]?'var(--grad-sakura-soft)':'transparent',
+                     color:logFilter===f[0]?'var(--accent)':'var(--text-dim)'}">{{f[1]}}</button>
+          <label style="font-size:12px;color:var(--text-dim);margin-left:auto;display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" v-model="logShowBackend" @change="refreshLogs()"> 后端记录
+          </label>
+          <button @click="clearLogs" style="padding:3px 10px;border-radius:12px;border:1px solid var(--text-dim);background:transparent;color:var(--text-dim);cursor:pointer;font-size:12px;">清空</button>
+          <button @click="exportLogs" style="padding:3px 10px;border-radius:12px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;font-size:12px;">导出txt</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">
+          前端 {{logEntries.length}} 条 · 后端 {{logBackend.length}} 条{{logFindRid ? ' · rid='+logFindRid+' 过滤中' : ''}} · 点请求行串联后端
+        </div>
+        <div style="max-height:62vh;overflow-y:auto;font-family:Consolas,monospace;font-size:11.5px;line-height:1.8;">
+          <div v-for="(l, i) in displayLogs" :key="i" @click="l.rid && linkBackend(l.rid)"
+               :style="{padding:'2px 8px',borderRadius:'6px',cursor:l.rid?'pointer':'default',whiteSpace:'pre-wrap',wordBreak:'break-all'}">
+            <span style="color:var(--text-dim);">{{fmtLogTime(l.t)}}</span>
+            <span :style="{color:{req:'#7ec8a9',warn:'#e8c06a',error:'#e879a9',route:'#8ab4d9',console:'#b8a6d9',boot:'#d9a05b',req_b:'#d9a05b'}[l.type]||'#999',fontWeight:600}">[{{l.type}}]</span>
+            <span v-if="l.ep" style="color:#7ec8a9;">{{l.ep}}</span>
+            <span v-if="l.ms!=null" style="color:var(--text-dim);">{{l.ms}}ms</span>
+            <span v-if="l.status" style="color:var(--text-dim);">st={{l.status}}</span>
+            <span v-if="l.rid" style="color:#8ab4d9;">{{l.rid}}</span>
+            <span v-if="l.to" style="color:#8ab4d9;">→ {{l.to}}</span>
+            <span v-if="l.msg" style="color:#c9c4d4;">{{l.msg}}</span>
+            <span v-if="l.err" style="color:#e879a9;">{{l.err}}</span>
+            <span v-if="l.level" style="color:#b8a6d9;">{{l.level}}</span>
+          </div>
+        </div>
+      </div>
       <!-- ==================== SETTINGS (v5.5 富配置页) ==================== -->
       <div v-show="route==='settings'">
         <!-- Embedding 配置组 -->
@@ -2454,36 +2492,103 @@ body.light-theme .nav-item.active{background:linear-gradient(135deg,rgba(232,86,
 <script>
 const { createApp } = Vue;
 
-// v5.6+: ECharts 按需懒加载——1MB 不再阻塞首屏，首个图表渲染时才注入
+// v5.9.2fix: 插件页跑在沙箱 iframe(allow-scripts, 无 allow-same-origin)里——origin=null，
+// fetch credentials/cookie/CORS 全不可用（v5.9 的 fetch+blob 方案在沙箱里死于 CORS，实锤）。
+// 官方 wiki 姿势: 静态资源走 <script src> 标签（不受 CORS 限制）；跨 iframe 通信用 bridge postMessage。
+// 链路: <script>带旧token试 → 401 onerror → bridge.apiGet("page/asset_token")让父页(带登录态)调
+// 咱家后端自签的 24h 长命 token 端点 → 重建 <script> 标签加载。全走官方通道，沙箱免疫。
 let _echartsReady = null;
+let _lmhAtokCache = null; // {tok, ts} 长命 token 缓存（服务端自签 exp=24h，前端 12h 内复用）
+function _lmhCurAtok() {
+  return new URLSearchParams(location.search).get("asset_token") || "";
+}
+function _lmhScriptTag(file, tok) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = file + (tok ? "?asset_token=" + encodeURIComponent(tok) : "");
+    s.onload = () => resolve();
+    s.onerror = () => { s.remove(); reject(new Error(file + " tag load fail")); };
+    document.head.appendChild(s);
+  });
+}
+async function _lmhRefreshAssetToken() {
+  if (_lmhAtokCache && Date.now() - _lmhAtokCache.ts < 43200000) return _lmhAtokCache.tok; // 12h 复用
+  // 路径1(沙箱内唯一活路): bridge 让 dashboard 父页代发 → 咱家后端 /asset_token 自签长命 token
+  try {
+    if (window.AstrBotPluginPage) {
+      await window.AstrBotPluginPage.ready();
+      const res = await window.AstrBotPluginPage.apiGet("page/asset_token", {});
+      const tok = res && (res.asset_token || (res.data && res.data.asset_token));
+      if (tok) { _lmhAtokCache = { tok: tok, ts: Date.now() }; console.log("[AssetToken] refreshed via bridge (24h)"); return tok; }
+      console.warn("[AssetToken] bridge resp no token:", JSON.stringify(res).slice(0, 120));
+    }
+  } catch (e) { console.warn("[AssetToken] bridge refresh failed:", e); }
+  // 路径2(非沙箱/直开页面时): 同源直连扩展路由，带 cookie
+  try {
+    const r = await fetch("/api/v1/plugins/extensions/astrbot_plugin_livingmemory_helper/page/asset_token", { credentials: "include" });
+    if (r.ok) {
+      const res = await r.json();
+      const tok = res && (res.asset_token || (res.data && res.data.asset_token));
+      if (tok) { _lmhAtokCache = { tok: tok, ts: Date.now() }; console.log("[AssetToken] refreshed via direct fetch"); return tok; }
+    }
+  } catch (e) { console.warn("[AssetToken] direct refresh failed:", e); }
+  return null;
+}
+async function _lmhLoadScript(file) {
+  // 第1拍: 用页面 URL 里自带的 token（页面刚打开的 60s 内有效，最快路径）
+  try { await _lmhScriptTag(file, _lmhCurAtok()); return; } catch (e) { console.warn("[AssetToken]", file, "stale token, refreshing..."); }
+  // 第2拍: 续签长命 token 重试
+  const tok = await _lmhRefreshAssetToken();
+  if (tok) {
+    try { await _lmhScriptTag(file, tok); console.log("[LazyAsset]", file, "loaded with refreshed token"); return; } catch (e) {}
+  }
+  throw new Error(file + " load failed (token refresh exhausted)");
+}
 function ensureEcharts() {
   if (window.echarts) return Promise.resolve(window.echarts);
   if (!_echartsReady) {
-    _echartsReady = new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      // v5.7.2fix: 动态 script 不经服务端 HTML 改写器（vue/petals 被改写成带 asset_token 的绝对路径，这里没有），
-      // 相对路径解析会丢 query 导致 401。自己从当前页 URL 捡 token 拼上。
-      const _atok = new URLSearchParams(location.search).get("asset_token") || "";
-      s.src = "echarts.min.js" + (_atok ? "?asset_token=" + encodeURIComponent(_atok) : "");
-      s.onload = () => resolve(window.echarts);
-      s.onerror = () => { _echartsReady = null; reject(new Error("echarts.min.js load failed")); };
-      document.head.appendChild(s);
-    });
+    _echartsReady = _lmhLoadScript("echarts.min.js")
+      .then(() => { console.log("[ECharts] ready"); return window.echarts; })
+      .catch(e => { _echartsReady = null; console.error("[ECharts]", e.message); throw e; });
   }
   return _echartsReady;
 }
+
+// ═══ v6.1 LogBus 全链路日志总线（localStorage 环形500条 · rid 串联后端）═══
+window.__LMH_LOG = (function(){
+  var KEY = "lmh_log_buf", MAX = 500;
+  function load(){ try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch(e){ return []; } }
+  function save(b){ try { localStorage.setItem(KEY, JSON.stringify(b.slice(-MAX))); } catch(e){} }
+  var buf = load();
+  function push(type, data){
+    try {
+      var e = Object.assign({t: Date.now(), type: type}, data || {});
+      buf.push(e); if (buf.length > MAX) buf = buf.slice(-MAX); save(buf);
+    } catch(e){}
+  }
+  function exportTxt(){
+    var lines = buf.map(function(e){
+      var ts = new Date(e.t).toLocaleTimeString("zh-CN", {hour12:false});
+      var body = '';
+      try { var c = Object.assign({}, e); delete c.t; delete c.type; body = JSON.stringify(c); } catch(x){}
+      return ts + " [" + e.type + "] " + body;
+    });
+    var blob = new Blob([lines.join("\n")], {type:"text/plain"});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = "lmh-log-" + Date.now() + ".txt";
+    a.click();
+  }
+  return { push: push, get: function(){ return buf; }, clear: function(){ buf = []; save(buf); }, exportTxt: exportTxt };
+})();
+
 function ensureGraph2D() {
-  // v5.8perf: graph-2d 只有图谱页需要，改懒加载省 47KB 首屏；token 捡取同 ensureEcharts
+  // v5.9fix: graph-2d 懒加载改走 _lmhLoadScript（fetch+续签+blob），同 echarts 免疫 60s token 过期
   if (window.Graph2D) return Promise.resolve(true);
   if (!window._graph2dReady) {
-    window._graph2dReady = new Promise((resolve) => {
-      const s = document.createElement("script");
-      const _atok = new URLSearchParams(location.search).get("asset_token") || "";
-      s.src = "graph-2d.js" + (_atok ? "?asset_token=" + encodeURIComponent(_atok) : "");
-      s.onload = () => resolve(!!window.Graph2D);
-      s.onerror = () => { window._graph2dReady = null; resolve(false); };
-      document.head.appendChild(s);
-    });
+    window._graph2dReady = _lmhLoadScript("graph-2d.js")
+      .then(() => { console.log("[Graph2D] loaded via fetch+blob"); return !!window.Graph2D; })
+      .catch(e => { window._graph2dReady = null; console.error("[Graph2D]", e.message); return false; });
   }
   return window._graph2dReady;
 }
@@ -2508,9 +2613,15 @@ createApp({
         { id: "pyramid",   label: "记忆金字塔", icon: "🔺" },
         { id: "family",    label: "家庭生态", icon: "🏡" },
         { id: "knowledge", label: "知识毕业", icon: "🎓" },
+        { id: "logs",     label: "日志",     icon: "📜" },
         { id: "settings",  label: "设置",     icon: "⚙" }
       ],
       toasts: [],
+      logFilter: "all",
+      logEntries: [],
+      logBackend: [],
+      logShowBackend: false,
+      logFindRid: "",
       _lastNotifCheck: 0,
       showConfirmDialog: false,
       confirmMsg: "",
@@ -2670,6 +2781,14 @@ createApp({
     };
   },
  computed: {
+    displayLogs() {
+      var f = this.logFilter;
+      var fe = this.logEntries.filter(l => f === 'all' || l.type === f);
+      var be = this.logBackend.map(e => Object.assign({}, e, { type: 'req_b' }));
+      if (this.logFindRid) { be = be.filter(e => e.rid === this.logFindRid); }
+      else if (f !== 'all' && f !== 'req') { be = []; }
+      return fe.concat(be).slice(0, 400);
+    },
    pageTitle() {
      const n = this.navItems.find(x => x.id === this.route);
      return n ? n.label : "管理面板";
@@ -2729,6 +2848,17 @@ createApp({
     window.addEventListener("resize", this._echartsResize, { passive: true });
   },
   mounted() {
+    // v6.1 日志哨兵：路由跳转监听 + console 异常拦截
+    try {
+      window.addEventListener("hashchange", function(ev){ window.__LMH_LOG.push("route", { to: location.hash.slice(0, 80), from: String(ev.oldURL || "").split("#")[1] || "" }); });
+      if (!console.__lmhWrapped) {
+        var _oe = console.error, _ow = console.warn;
+        console.error = function(){ try { window.__LMH_LOG.push("console", { level: "error", msg: Array.from(arguments).map(String).join(" ").slice(0, 200) }); } catch(e){} return _oe.apply(console, arguments); };
+        console.warn  = function(){ try { window.__LMH_LOG.push("console", { level: "warn",  msg: Array.from(arguments).map(String).join(" ").slice(0, 200) }); } catch(e){} return _ow.apply(console, arguments); };
+        console.__lmhWrapped = true;
+      }
+      window.__LMH_LOG.push("boot", { msg: "页面启动 route=" + this.route });
+    } catch(e) {}
     // 【修复】仅在当前就是图谱页时才初始化，否则 DOM 隐藏时 canvas 尺寸为 0
     // 其他页面会在切换到图谱页时由 loadPageData 的 $nextTick 延迟初始化
     if (this.route === "graph") {
@@ -2749,6 +2879,17 @@ createApp({
     if (window.Graph2D) window.Graph2D.destroy();
   },
   methods: {
+    // ━━━ v6.1 日志页 ━━━
+    refreshLogs() {
+      this.logEntries = window.__LMH_LOG.get().slice().reverse();
+      if (this.logShowBackend) {
+        this.api("logs/list").then(r => { this.logBackend = (r && r.entries) ? r.entries.slice().reverse() : []; }).catch(() => {});
+      } else { this.logBackend = []; }
+    },
+    clearLogs() { window.__LMH_LOG.clear(); this.logEntries = []; this.logBackend = []; this.logFindRid = ''; },
+    exportLogs() { window.__LMH_LOG.exportTxt(); },
+    fmtLogTime(t) { var d = t > 1e12 ? new Date(t) : new Date(t * 1000); return d.toLocaleTimeString('zh-CN', {hour12:false}) + '.' + String(d.getMilliseconds()).padStart(3, '0'); },
+    linkBackend(rid) { this.logShowBackend = true; this.logFindRid = rid; this.refreshLogs(); },
     // ━━━ 主题切换 ━━━
     toggleTheme() {
       this.isLight = !this.isLight;
@@ -2954,6 +3095,21 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
       return await resp.json();
     },
     async api(p, qp) {
+      var rid = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      var t0 = performance.now();
+      try {
+        var res = await this._apiInner(p, Object.assign({}, qp || {}, { _rid: rid }));
+        var ms = Math.round(performance.now() - t0);
+        var st = res && res.status;
+        window.__LMH_LOG.push(st === "ok" ? "req" : "warn", { rid: rid, ep: p, ms: ms, status: st === undefined ? "null" : st });
+        return res;
+      } catch (err) {
+        var ms2 = Math.round(performance.now() - t0);
+        window.__LMH_LOG.push("error", { rid: rid, ep: p, ms: ms2, err: String((err && err.message) || err).slice(0, 200) });
+        throw err;
+      }
+    },
+    async _apiInner(p, qp) {
       try {
         if (this._useDirectApi) {
           const result = await this._directApiGet(p, qp);
@@ -3410,7 +3566,9 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
       }
     },
     async loadPageData() {
-      if (this.route === "timeline") {
+      if (this.route === "logs") {
+        this.refreshLogs();
+      } else if (this.route === "timeline") {
         const d = await this.api("timeline", { period: this.dateActive });
         if (d.memories) this.timelineData = d.memories;
       } else if (this.route === "lessons") {
@@ -3712,6 +3870,7 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
 
     // ━━━ P0: ECharts 图表渲染 ━━━
     async renderCharts() {
+      console.log('[DBG] renderCharts called, route=', this.route);
       // 【P0修复】每个图表独立 try-catch，防止一个崩溃导致后续全部跳过
       try {
         // 情感饼图
@@ -3828,8 +3987,10 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
     // 【修复】统一挂载 ECharts：先 dispose 旧实例并从 _charts 移除，新建后登记，由单一全局 resize handler 管理
     async _mountChart(elId, option) {
       const el = document.getElementById(elId);
+      console.log('[DBG] mount', elId, 'el=', !!el, 'h=', el ? el.clientHeight : -1, 'echarts_ready=', typeof window.echarts !== 'undefined');
       if (!el) return;
       await ensureEcharts();
+      console.log('[DBG] after ensure', elId, 'echarts=', !!window.echarts);
       const old = echarts.getInstanceByDom(el);
       if (old) {
         echarts.dispose(el);
@@ -3838,6 +3999,7 @@ body.light-theme .content [style*="border-left: 3px solid #ff6b"]{border-left-co
       }
       const chart = echarts.init(el, this.isLight ? '' : 'dark');
       chart.setOption(option);
+      console.log('[DBG] setOption OK', elId, 'canvas=', el.querySelector('canvas') ? (el.querySelector('canvas').width + 'x' + el.querySelector('canvas').height) : 'NO_CANVAS');
       this._charts.push(chart);
     },
 

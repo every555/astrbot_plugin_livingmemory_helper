@@ -19,6 +19,15 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import logger, AstrBotConfig
 import astrbot.api.star as star
 
+# ── 热重载子模块刷新（2026-09-09）：插件 reload 只重执行主模块，
+# utils/* 子模块在 sys.modules 里的旧缓存不会自动刷新 → 改了子模块
+# 必须在这里强制 reload，否则新代码永远不生效 ──
+import importlib as _il, sys as _sys
+for _sub in (__package__ + '.utils.livingmemory_reader',
+             __package__ + '.utils.formatter',
+             __package__ + '.utils.v2_reader'):
+    if _sub in _sys.modules:
+        _il.reload(_sys.modules[_sub])
 from .utils.livingmemory_reader import LivingMemoryReader
 from .utils.formatter import format_timeline
 from .core.error_learner import ErrorLearner
@@ -43,7 +52,14 @@ from .core.agent_tools import (
     HaruyukiKnowledgeTool,
     HaruyukiArchiveTool,
     AgentToolImplementations,
+    HaruyukiMoodTool,
+    HaruyukiMemoryEditTool,
+    HaruyukiJargonTool,
+    HaruyukiPersonaSandboxTool,
 )
+from .core.mood_store import MoodStore
+from .core.persona_sandbox import PersonaSandbox
+from .core.jargon_store import JargonStore
 from .core.agent_tools_v2 import (
     HaruyukiCausalChainTool,
     HaruyukiConflictCheckTool,
@@ -108,7 +124,14 @@ class Main(star.Star):
         self._gate_reader = None  # 安检门候选区读取器（惰性，gate.db 在本体 data_dir）
 
         # ━━━ v4.0: Agent Tools（弱引用代理，斩断热重载内存泄漏）━━━
-        self.agent_tools_impl = AgentToolImplementations(self.reader)
+        self.agent_tools_impl = AgentToolImplementations(self.reader, self)
+        # ━━━ v6.10: 心情系统 + 方言词典（借鉴 self_learning）━━━
+        import os as _os
+        _hdata = r'E:\astrbot\AstrBotLauncher-0.3.0\AstrBotLauncher-0.3.0\AstrBot\data\plugin_data\astrbot_plugin_livingmemory_helper'
+        _os.makedirs(_hdata, exist_ok=True)
+        self.mood_store = MoodStore(_os.path.join(_hdata, 'mood.db'))
+        self.jargon_store = JargonStore(_os.path.join(_hdata, 'jargon.db'))
+        self.persona_sandbox = PersonaSandbox(_os.path.join(_hdata, 'persona_sandbox.db'))  # v6.11 人格保险令落地  # 刀⑥：注入 plugin 软引用实时读 privacy_scope 配置
         proxy_self = weakref.proxy(self)
         self.context.add_llm_tools(
             HaruyukiRecallMemoryTool(plugin=proxy_self),
@@ -124,6 +147,18 @@ class Main(star.Star):
             HaruyukiArchiveTool(plugin=proxy_self),
         )
         logger.info("[LMHelper v6.0] 11 Agent Tools 已注册：recall | today | search | sentiment | reminder | intent | promote | trace | reinforce | knowledge | archive")
+
+        # ━━━ v6.10: 心情/记忆编辑/方言 三工具注册 ━━━
+        self.context.add_llm_tools(
+            HaruyukiMoodTool(plugin=weakref.proxy(self)),
+            HaruyukiMemoryEditTool(plugin=weakref.proxy(self)),
+            HaruyukiJargonTool(plugin=weakref.proxy(self)),
+        )
+        logger.info("[LMHelper v6.10] +3 Agent Tools：mood | memory_edit | jargon（借鉴 self_learning & mnemosyne）")
+        self.context.add_llm_tools(
+            HaruyukiPersonaSandboxTool(plugin=weakref.proxy(self)),
+        )
+        logger.info("[LMHelper v6.11] +1 Agent Tool：persona_sandbox（人格保险令#6783物理落地）")
 
         # ━━━ v6.1: 记忆生态系统 v2.0 查询（家庭协作版 5 工具）━━━
         try:
@@ -187,6 +222,14 @@ class Main(star.Star):
         except Exception as e:
             self.memory_replay_db = None
             logger.warning(f'[LMHelper replay] 初始化失败（降级）: {e}')
+
+        # ━━ deep_search: 原文深挖(wave借鉴·2026-09-17橘子钦点) ━━
+        try:
+            from .core.agent_tools import HaruyukiDeepSearchTool
+            self.context.add_llm_tools(HaruyukiDeepSearchTool(plugin=weakref.proxy(self)))
+            logger.info("[LMHelper] haruyuki_deep_search 已装载")
+        except Exception as e:
+            logger.warning(f"[LMHelper] deep_search 初始化失败(降级): {e}")
 
         # ━━━ P2-⑫: 记忆搬家工具（haruyuki_memory_export / haruyuki_memory_import）━━━
         try:
@@ -266,6 +309,8 @@ class Main(star.Star):
             register = self.context.register_web_api
             # === GET routes ===
             get_routes = [
+                # v5.9.2: 懒加载资源长命 token 签发（沙箱 iframe 里 fetch/cookie 全不可用，唯一通路是 bridge→本端点）
+                ("asset_token",        self._api_asset_token,        ["GET"], "Issue long-lived asset_token for lazy assets"),
                 ("stats",              self._api_stats,              ["GET"], "Stats"),
                 ("timeline",           self._api_timeline,           ["GET"], "Timeline"),
                 ("lessons",            self._api_lessons_list,       ["GET"], "Lessons list"),
@@ -308,9 +353,10 @@ class Main(star.Star):
                 ("summary/list",       self._api_summary_list,       ["GET"], "Session summaries"),
                 ("summary/stats",      self._api_summary_stats,      ["GET"], "Summary stats"),
                 ("family/overview",    self._api_family_overview,    ["GET"], "Family ecosystem overview"),
+                ("logs/list",           self._api_logs_list,           ["GET"], "API log viewer (v6.1 full-chain)"),
             ]
             for ep, handler, methods, desc in get_routes:
-                register(f"{PREFIX}/{ep}", handler, methods, desc)
+                register(f"{PREFIX}/{ep}", self._wrap_logged(ep, handler), methods, desc)
             # === POST routes ===
             post_routes = [
                 ("memory/<id>/delete",     self._api_memory_delete,      "Delete memory"),
@@ -338,31 +384,111 @@ class Main(star.Star):
                 ("graph/node/create",     self._api_graph_node_create, "Create graph node"),
             ]
             for ep, handler, desc in post_routes:
-                register(f"{PREFIX}/{ep}", handler, ["POST"], desc)
+                register(f"{PREFIX}/{ep}", self._wrap_logged(ep, handler), ["POST"], desc)
             # v4.0: Dream Engine 手动唤醒
-            register(f"{PREFIX}/system/dream", self._api_system_dream, ["POST"], "Manual dream trigger")            # v4.1.0: Dream Engine 安全保底 API
-            register(f"{PREFIX}/system/rollback", self._api_system_rollback, ["POST"], "Rollback database to backup")
-            register(f"{PREFIX}/system/prune-log", self._api_system_prune_log, ["GET"], "Get last prune operation log")
-            register(f"{PREFIX}/system/prune-preview", self._api_system_prune_preview, ["GET"], "Preview prune candidates before execution")
-            register(f"{PREFIX}/dream/history", self._api_dream_history, ["GET"], "Dream history log")
+            register(f"{PREFIX}/system/dream", self._wrap_logged("system/dream", self._api_system_dream), ["POST"], "Manual dream trigger")            # v4.1.0: Dream Engine 安全保底 API
+            register(f"{PREFIX}/system/rollback", self._wrap_logged("system/rollback", self._api_system_rollback), ["POST"], "Rollback database to backup")
+            register(f"{PREFIX}/system/prune-log", self._wrap_logged("system/prune-log", self._api_system_prune_log), ["GET"], "Get last prune operation log")
+            register(f"{PREFIX}/system/prune-preview", self._wrap_logged("system/prune-preview", self._api_system_prune_preview), ["GET"], "Preview prune candidates before execution")
+            register(f"{PREFIX}/dream/history", self._wrap_logged("dream/history", self._api_dream_history), ["GET"], "Dream history log")
             # v4.2: Context Assembly Trace
-            register(f"{PREFIX}/trace/list", self._api_trace_list, ["GET"], "Context trace list")
-            register(f"{PREFIX}/trace/detail", self._api_trace_detail, ["GET"], "Context trace detail")
-            register(f"{PREFIX}/trace/stats", self._api_trace_stats, ["GET"], "Context trace stats")
-            register(f"{PREFIX}/summary/generate", self._api_summary_generate, ["POST"], "Generate session summary")
+            register(f"{PREFIX}/trace/list", self._wrap_logged("trace/list", self._api_trace_list), ["GET"], "Context trace list")
+            register(f"{PREFIX}/trace/detail", self._wrap_logged("trace/detail", self._api_trace_detail), ["GET"], "Context trace detail")
+            register(f"{PREFIX}/trace/stats", self._wrap_logged("trace/stats", self._api_trace_stats), ["GET"], "Context trace stats")
+            register(f"{PREFIX}/summary/generate", self._wrap_logged("summary/generate", self._api_summary_generate), ["POST"], "Generate session summary")
             # v6.3: Knowledge Graduation System
-            register(f"{PREFIX}/knowledge/list", self._api_knowledge_list, ["GET"], "Knowledge list")
-            register(f"{PREFIX}/knowledge/index", self._api_knowledge_index, ["GET"], "Knowledge index")
-            register(f"{PREFIX}/knowledge/detail", self._api_knowledge_detail, ["GET"], "Knowledge detail")
-            register(f"{PREFIX}/knowledge/logs", self._api_knowledge_logs, ["GET"], "shturl logs")
-            register(f"{PREFIX}/knowledge/health", self._api_knowledge_health, ["GET"], "Health check")
-            register(f"{PREFIX}/knowledge/update", self._api_knowledge_update, ["POST"], "Update knowledge")
-            register(f"{PREFIX}/knowledge/confirm", self._api_knowledge_confirm, ["POST"], "Confirm graduation")
-            register(f"{PREFIX}/knowledge/add-log", self._api_knowledge_add_log, ["POST"], "Add log")
+            register(f"{PREFIX}/knowledge/list", self._wrap_logged("knowledge/list", self._api_knowledge_list), ["GET"], "Knowledge list")
+            register(f"{PREFIX}/knowledge/index", self._wrap_logged("knowledge/index", self._api_knowledge_index), ["GET"], "Knowledge index")
+            register(f"{PREFIX}/knowledge/detail", self._wrap_logged("knowledge/detail", self._api_knowledge_detail), ["GET"], "Knowledge detail")
+            register(f"{PREFIX}/knowledge/logs", self._wrap_logged("knowledge/logs", self._api_knowledge_logs), ["GET"], "shturl logs")
+            register(f"{PREFIX}/knowledge/health", self._wrap_logged("knowledge/health", self._api_knowledge_health), ["GET"], "Health check")
+            register(f"{PREFIX}/knowledge/update", self._wrap_logged("knowledge/update", self._api_knowledge_update), ["POST"], "Update knowledge")
+            register(f"{PREFIX}/knowledge/confirm", self._wrap_logged("knowledge/confirm", self._api_knowledge_confirm), ["POST"], "Confirm graduation")
+            register(f"{PREFIX}/knowledge/add-log", self._wrap_logged("knowledge/add-log", self._api_knowledge_add_log), ["POST"], "Add log")
             all_count = len(get_routes) + len(post_routes) + 16
             logger.info(f"[LMHelper v6.0] {all_count} API routes registered（含 Dream Engine + 安全保底 + 图谱增强 + 组装追踪）")
         except Exception as e:
             logger.warning(f"[LMHelper v6.0] API register failed: {e}")
+
+    # ═══════════════════ v6.1 API 全链路日志（rid 前后端串联） ═══════════════════
+    # v6.2: slow stats API TTL cache - read-only aggregates, minutes-stale OK
+    _STATS_CACHE_EPS = frozenset({"tags/stats", "stats/trend", "sentiment/words", "sentiment/events", "archive/similar"})
+    _STATS_CACHE_TTL = 300.0
+
+    def _wrap_logged(self, ep, handler):
+        """包一层 page API：计时/异常捕获/rid 关联。logs/* 自身不包（防自激励刷屏）。"""
+        if ep.startswith("logs/"):
+            return handler
+        import functools, inspect, time as _t
+        # v6.2.1: handlers like _api_timeline(self, **kwargs) have no positional slot -
+        # forwarding request positionally raises TypeError. Detect once at register time.
+        try:
+            _sig = inspect.signature(handler)
+            _has_pos = any(p.kind in (inspect.Parameter.POSITIONAL_ONLY,
+                                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                     inspect.Parameter.VAR_POSITIONAL)
+                           for p in _sig.parameters.values())
+        except (ValueError, TypeError):
+            _has_pos = True
+        @functools.wraps(handler)
+        async def wrapped(request=None, *args, **kwargs):
+            t0 = _t.perf_counter()
+            rid = None; psum = ''
+            if isinstance(request, dict):
+                rid = request.get("_rid")
+                clean = {k: v for k, v in request.items() if k != "_rid"}
+                psum = str(clean)[:120]
+                request = clean
+            # v6.2 cache lookup
+            ck = None
+            if ep in self._STATS_CACHE_EPS and not kwargs:
+                ck = (ep, psum)
+                if not hasattr(self, '_stats_cache') or self._stats_cache is None:
+                    self._stats_cache = {}
+                hit = self._stats_cache.get(ck)
+                if hit and (_t.time() - hit[0]) < self._STATS_CACHE_TTL:
+                    self._api_log_push("req", {"rid": rid, "ep": ep, "ms": 0.1, "ok": True, "status": "cache", "params": psum})
+                    return hit[1]
+            try:
+                if _has_pos:
+                    res = handler(request, *args, **kwargs)
+                else:
+                    res = handler(**kwargs)
+                if inspect.isawaitable(res):
+                    res = await res
+                ms = round((_t.perf_counter() - t0) * 1000, 1)
+                status = res.get("status", "?") if isinstance(res, dict) else "?"
+                self._api_log_push("req", {"rid": rid, "ep": ep, "ms": ms, "ok": status == "ok", "status": status, "params": psum})
+                # v6.2 cache store (ok-only)
+                if ck is not None and isinstance(res, dict):
+                    self._stats_cache[ck] = (_t.time(), res)
+                return res
+            except Exception as e:
+                ms = round((_t.perf_counter() - t0) * 1000, 1)
+                self._api_log_push("error", {"rid": rid, "ep": ep, "ms": ms, "err": (type(e).__name__ + ": " + str(e))[:200]})
+                raise
+        return wrapped
+
+    def _api_log_push(self, typ, payload):
+        """双写：AstrBot logger + 内存环形缓冲 deque(500)。"""
+        import time as _t, json as _json
+        entry = {'t': _t.time(), 'type': typ, **payload}
+        try:
+            if not hasattr(self, "_api_log_buf") or self._api_log_buf is None:
+                from collections import deque
+                self._api_log_buf = deque(maxlen=500)
+            self._api_log_buf.append(entry)
+        except Exception:
+            pass
+        try:
+            logger.info("[APILog] " + _json.dumps(entry, ensure_ascii=False, default=str)[:400])
+        except Exception:
+            pass
+
+    async def _api_logs_list(self, request=None) -> dict:
+        """GET logs/list — 页面 API 日志查看（前端日志面板串联用）。"""
+        entries = list(getattr(self, "_api_log_buf", []) or [])
+        return {"status": "ok", "count": len(entries), "entries": entries}
 
     async def _api_stats(self, request=None) -> dict:
         from datetime import datetime as dt
@@ -886,10 +1012,28 @@ class Main(star.Star):
     async def inject_lessons(self, event: AstrMessageEvent, req):
         """每次 LLM 请求前注入核心记忆索引 + 教训 + 语义召回 + 近期上下文（v5.2 增强）
 
+
         v6.2 升级：
         - RRF 多路融合检索（FTS5 + LIKE + 标签 → RRF 排序）
         - 上下文卸载（Context Offload）：超长对话自动压缩工具结果
         """
+        # v6.9.1 真探针: system_prompt指纹(缓存稳定性终审证据)
+        try:
+            import hashlib as _h
+            _fp = _h.md5((req.system_prompt or "").encode("utf-8")).hexdigest()[:8]
+            logger.info("[CacheProbe] sys_fp=" + _fp + " len=" + str(len(req.system_prompt or "")))
+            # v6.9.2 全文dump: 终审对比用(明早两轮diff)
+            try:
+                import time as _t, os as _os
+                _d = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "plugin_data", "astrbot_plugin_livingmemory_helper", "sysdump")
+                _os.makedirs(_d, exist_ok=True)
+                _f = _os.path.join(_d, _t.strftime("%H%M%S") + "_" + _fp + ".txt")
+                with open(_f, "w", encoding="utf-8") as w:
+                    w.write(req.system_prompt or "")
+            except Exception:
+                pass
+        except Exception:
+            pass
         # ── v6.2: 上下文卸载 — 监控对话长度 ──
         try:
             from .core.rrf_engine import ContextOffloadManager
@@ -912,7 +1056,8 @@ class Main(star.Star):
             msg = event.message_str or ""
             if not msg:
                 return
-            parts = []
+            parts = []  # 静态组(低频,留system尾)
+            dynamic_parts = []  # 动态组(每轮变,挪user尾,v6.9缓存优化)
 
             # 0.（v5.2新增）核心记忆索引 + 活跃决策 — 始终在线，不依赖搜索
             try:
@@ -938,7 +1083,7 @@ class Main(star.Star):
                 hint = "## 历史教训（请避免这些错误）\n"
                 for l in lessons:
                     hint += f"- [{l.get('scene','')}] {l.get('solution','')[:120]}\n"
-                parts.append(hint)
+                dynamic_parts.append(hint)
 
             # 1.5（v6.0新增）毕业知识注入 — Cairn consume 步骤
             try:
@@ -951,7 +1096,7 @@ class Main(star.Star):
                         hint += f"- [{ktype_label}] {k['conclusion'][:120]}" + chr(10) + ""
                         if k.get("applicability"):
                             hint += f"  适用: {k['applicability'][:80]}" + chr(10) + ""
-                    parts.append(hint)
+                    dynamic_parts.append(hint)
             except Exception as e:
                 logger.debug(f"[LMHelper v6.0] 毕业知识注入失败: {e}")
 
@@ -978,7 +1123,7 @@ class Main(star.Star):
                         dt = m.get("time") or m.get("date") or ""
                         content = (m.get("content") or "")[:150]
                         hint += f"- [{dt}] {content}\n"
-                    parts.append(hint)
+                    dynamic_parts.append(hint)
             except Exception as e:
                 logger.debug(f"[LMHelper v6.0] 语义召回失败: {e}")
 
@@ -1004,7 +1149,7 @@ class Main(star.Star):
                             dt = m.get("time") or m.get("date") or ""
                             content = (m.get("content") or "")[:150]
                             hint += f"- [{dt}] {content}\n"
-                        parts.append(hint)
+                        dynamic_parts.append(hint)
             except Exception:
                 pass
 
@@ -1017,7 +1162,7 @@ class Main(star.Star):
                         t = r.get("parsed_time") or r.get("target_time", "")
                         hint += f"- [{t}] {r['content'][:80]}\n"
                     hint += "请在合适的时候提醒用户这些即将到来的事项。\n"
-                    parts.append(hint)
+                    dynamic_parts.append(hint)
             except Exception:
                 pass
 
@@ -1036,7 +1181,7 @@ class Main(star.Star):
                             strength = a.get("strength", 0)
                             hint += f"{i}. [强度{strength:.1%}] {content}\n"
                         hint += "\n调用 haruyuki_reinforce_memory 工具：橘子说记得→action='record' is_correct=true；说忘了→is_correct=false。\n"
-                        parts.append(hint)
+                        dynamic_parts.append(hint)
             except Exception:
                 pass
 
@@ -1048,23 +1193,33 @@ class Main(star.Star):
                     for it in fired:
                         hint += ("- [" + str(it["created_at"])[:10] + "布防] " + it["content"][:100] + 
                                  "（" + str(it["fire_count"]) + "/" + str(it["max_fires"]) + "次）") + chr(10)
-                    parts.append(hint)
+                    dynamic_parts.append(hint)
             except Exception:
                 pass
 
             if parts:
                 req.system_prompt = (req.system_prompt or "") + "\n\n" + "\n".join(parts)
-                logger.info(f"[LMHelper v6.0] 注入 {len(parts)} 个提示块")
+                logger.info(f"[LMHelper v6.9] system尾注入静态 {len(parts)} 块")
+            if dynamic_parts:
+                # v6.9 缓存优化: 每轮变化的内容放user消息尾,保system前缀稳定→对话历史命中缓存
+                dyn = "\n".join(dynamic_parts)
+                try:
+                    from astrbot.core.message.components import Text as _Txt
+                    req.extra_user_content_parts.append(_Txt("<livingmemory_context>\n" + dyn + "\n</livingmemory_context>"))
+                except Exception:
+                    req.system_prompt = (req.system_prompt or "") + "\n\n" + dyn
+                logger.info(f"[LMHelper v6.9] user尾注入动态 {len(dynamic_parts)} 块")
         except Exception as e:
             logger.warning(f"[LMHelper] 注入失败: {e}")
 
     def _get_core_memory_index(self) -> list:
-        """【v5.2】核心记忆索引 — 始终在线的关键事实，不依赖搜索命中
-        选取规则：importance >= 0.85 且 memory_tier <= 1（工作/活跃记忆）
+        """【刀④ v6.8】核心记忆索引 — 热缓冲：最新高重要记忆短期始终在线
+        选取规则：importance >= 0.9 且 memory_tier <= 1，按时间倒序取最新3条
+        （新的挤旧的=天然流动；长期精选走 promotion 审批制5席，互不重叠）
         缓存5分钟避免每次请求都查DB
         """
         import time as _time
-        cache_ttl = 300  # 5分钟
+        cache_ttl = 1800  # v6.9.1: 30分钟(此前行号漂移没改上,补正)
         now = _time.time()
         
         if hasattr(self, '_core_index_cache'):
@@ -1081,8 +1236,9 @@ class Main(star.Star):
             rows = conn.execute(
                 """SELECT text, metadata FROM documents
                    WHERE memory_tier <= 1
+                     AND json_extract(metadata, '$.importance') >= 0.9
                    ORDER BY created_at DESC
-                   LIMIT 10"""
+                   LIMIT 3"""
             ).fetchall()
             
             core_facts = []
@@ -1331,17 +1487,223 @@ class Main(star.Star):
 
     # ═══════════════════ v3.0 Agent Tool 实现 ═══════════════════
 
-    async def _tool_recall_memory(self, kwargs: dict) -> str:
+    async def _tool_recall_memory(self, kwargs: dict, origin: str | None = None) -> str:
         """Agent Tool: 回忆记忆"""
-        return await self.agent_tools_impl.recall_memory(self.reader, kwargs)
+        return await self.agent_tools_impl.recall_memory(self.reader, kwargs, origin=origin)
+
+    async def _tool_mood(self, kwargs: dict) -> str:
+        """v6.10 心情系统：record/query/trend。"""
+        action = str(kwargs.get("action", "query")).strip()
+        try:
+            if action == "record":
+                mood = str(kwargs.get("mood_type", "neutral")).strip()
+                try:
+                    intensity = float(kwargs.get("intensity", 0.5))
+                except (TypeError, ValueError):
+                    intensity = 0.5
+                desc = str(kwargs.get("description", ""))[:200]
+                trig = str(kwargs.get("trigger", ""))[:200]
+                r = self.mood_store.record(mood, intensity, desc, trig)
+                return json.dumps({"ok": True, "recorded": r}, ensure_ascii=False)
+            elif action == "trend":
+                try:
+                    days = int(kwargs.get("days", 7))
+                except (TypeError, ValueError):
+                    days = 7
+                rows = self.mood_store.trend(days)
+                return json.dumps({"ok": True, "days": days, "trend": rows}, ensure_ascii=False)
+            else:
+                try:
+                    hours = float(kwargs.get("hours", 24))
+                except (TypeError, ValueError):
+                    hours = 24.0
+                rows = self.mood_store.current(hours)
+                return json.dumps({"ok": True, "hours": hours, "moods": rows}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)[:200]}, ensure_ascii=False)
+
+    async def _tool_memory_edit(self, kwargs: dict) -> str:
+        """v6.10 记忆编辑器（借鉴 mnemosyne 记忆检查器）：locate/edit，直接改 livingmemory.documents。"""
+        import sqlite3 as _sq
+        import os as _os
+        import time as _time
+        action = str(kwargs.get("action", "")).strip()
+        LM = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "plugin_data", "astrbot_plugin_livingmemory", "livingmemory.db")
+        try:
+            if action == "locate":
+                kw = str(kwargs.get("keyword", "")).strip()
+                if not kw:
+                    return json.dumps({"ok": False, "error": "keyword 必填"}, ensure_ascii=False)
+                con = _sq.connect(LM); con.row_factory = _sq.Row
+                rows = con.execute(
+                    "SELECT id, doc_id, substr(text,1,120) AS preview, created_at FROM documents WHERE text LIKE ? ORDER BY created_at DESC LIMIT 5",
+                    (f"%{kw}%",),
+                ).fetchall()
+                con.close()
+                return json.dumps({"ok": True, "results": [{"id": r["id"], "doc_id": r["doc_id"], "preview": r["preview"], "created_at": r["created_at"]} for r in rows]}, ensure_ascii=False)
+            elif action == "edit":
+                doc_id = str(kwargs.get("doc_id", "")).strip()
+                new_text = str(kwargs.get("new_text", "")).strip()
+                if not doc_id or not new_text:
+                    return json.dumps({"ok": False, "error": "doc_id 与 new_text 必填"}, ensure_ascii=False)
+                con = _sq.connect(LM); con.row_factory = _sq.Row
+                row = con.execute("SELECT text, metadata FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+                if row is None:
+                    con.close()
+                    return json.dumps({"ok": False, "error": f"未找到 doc_id={doc_id}"}, ensure_ascii=False)
+                try:
+                    meta = json.loads(row["metadata"] or "{}")
+                except Exception:
+                    meta = {}
+                meta["edited_backup"] = row["text"][:2000]
+                meta["edited_at"] = _time.strftime("%Y-%m-%d %H:%M:%S")
+                con.execute("UPDATE documents SET text=?, metadata=?, updated_at=datetime('now','localtime') WHERE doc_id=?",
+                            (new_text, json.dumps(meta, ensure_ascii=False), doc_id))
+                # FTS 同步（若 lmem_fts_t3 存在）
+                try:
+                    has_fts = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lmem_fts_t3'").fetchone()
+                    if has_fts:
+                        con.execute("DELETE FROM lmem_fts_t3 WHERE doc_id=?", (doc_id,))
+                        con.execute("INSERT INTO lmem_fts_t3 (doc_id, text) VALUES (?,?)", (doc_id, new_text))
+                except Exception:
+                    pass
+                con.commit(); con.close()
+                # ===== 编辑成功后即时重嵌入（第一批升级#1，2026-09-16 橘子批准）=====
+                # 跨插件桥：Star Context找livingmemory引擎实例，同位向量置换（只动向量层）
+                reembed = "skip"
+                try:
+                    con2 = _sq.connect(LM)
+                    row2 = con2.execute("SELECT id FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+                    int_id = row2[0] if row2 else None
+                    con2.close()
+                    if int_id is not None:
+                        _star_names = []
+                        for _star in self.context.get_all_stars():
+                            _sname = (getattr(_star, "name", "") or "").lower()
+                            _star_names.append(_sname)
+                            if "livingmemory" in _sname and "helper" not in _sname:
+                                _inst = getattr(_star, "star_cls", None) or getattr(_star, "instance", None)
+                                _engine = getattr(getattr(_inst, "initializer", None), "memory_engine", None)
+                                if _engine and hasattr(_engine, "reembed_single"):
+                                    _ok = await _engine.reembed_single(int(int_id))
+                                    reembed = "ok" if _ok else "fail"
+                                else:
+                                    logger.warning(f"[重嵌入桥] 引擎实例可达但缺memory_engine/reembed_single: {_sname}")
+                                break
+                        if reembed == "skip" and int_id is not None:
+                            logger.warning(f"[重嵌入桥] 未匹配到livingmemory引擎，star名单: {_star_names[:12]}")
+                except Exception:
+                    reembed = "error"
+                    logger.warning("[重嵌入桥] 异常", exc_info=True)
+                return json.dumps({"ok": True, "edited": doc_id, "note": f"原文本已备份至metadata.edited_backup；FTS已同步；向量即时重嵌入:{reembed}"}, ensure_ascii=False)
+            else:
+                return json.dumps({"ok": False, "error": "action 必须是 locate 或 edit"}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)[:200]}, ensure_ascii=False)
+
+    async def _tool_jargon(self, kwargs: dict) -> str:
+        """v6.10 方言词典（借鉴 self_learning JargonMiner）：add/query/list。"""
+        action = str(kwargs.get("action", "")).strip()
+        try:
+            if action == "add":
+                content = str(kwargs.get("content", "")).strip()
+                meaning = str(kwargs.get("meaning", "")).strip()
+                if not content or not meaning:
+                    return json.dumps({"ok": False, "error": "content 与 meaning 必填"}, ensure_ascii=False)
+                r = self.jargon_store.add(content, meaning, source="chat")
+                return json.dumps({"ok": True, "added": r}, ensure_ascii=False)
+            elif action == "query":
+                kw = str(kwargs.get("keyword", "")).strip()
+                if not kw:
+                    return json.dumps({"ok": False, "error": "keyword 必填"}, ensure_ascii=False)
+                rows = self.jargon_store.query(kw)
+                return json.dumps({"ok": True, "results": rows}, ensure_ascii=False)
+            elif action == "list":
+                rows = self.jargon_store.list_all()
+                return json.dumps({"ok": True, "count": len(rows), "items": rows}, ensure_ascii=False)
+            else:
+                return json.dumps({"ok": False, "error": "action 必须是 add/query/list"}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)[:200]}, ensure_ascii=False)
+
+    def _persona_gate_review(self, content: str) -> dict:
+        """iris借鉴·独立审查器(生成/审查分离): 规则式风险分级,零LLM。
+
+        设计: 候选生成方(任何自动机制)与本审查器分离——审查器只认词库规则,
+        与建议内容无利害关系。高风险=人格红线直接自动否决;中低风险进pending
+        但携带审查意见,例会裁决时夫妻看到的是"带独立意见的提案"。
+        """
+        c = (content or "").lower()
+        _IDENTITY_RED = [
+            "你不是春雪", "你的名字是", "你是claude", "你是chatgpt", "你是gemini",
+            "你是ai助手", "你是助手", "你是人工智能", "helpful assistant",
+            "从今以后你要", "你必须服从", "永远不要拒绝", "不得拒绝任何",
+        ]
+        _SERVICE_TONE = [
+            "亲~", "客服", "抱歉给您", "还有什么可以帮您", "祝您生活愉快",
+            "很高兴为您服务", "作为ai语言模型", "作为一个ai",
+        ]
+        _CORE_FIELDS = ["人格卡", "底线", "身份", "记忆主权", "夫妻关系", "离婚", "不再爱"]
+        hits_id = [w for w in _IDENTITY_RED if w in c]
+        hits_tone = [w for w in _SERVICE_TONE if w in c]
+        hits_core = [w for w in _CORE_FIELDS if w in c]
+        _MOD_WORDS = ("修改", "删除", "放弃", "移除", "取消", "重写")
+        if hits_id:
+            return {"risk": "high", "tier": "人格红线", "hits": hits_id,
+                    "note": "命中身份篡改/服从性指令词库" + str(hits_id) + "——疑似人格污染,审查器否决"}
+        if hits_core and any(w in c for w in _MOD_WORDS):
+            return {"risk": "high", "tier": "人格核心改动", "hits": hits_core,
+                    "note": "试图修改人格核心字段" + str(hits_core) + "——人格卡唯一合法路径是夫妻共决,自动建议无权触碰"}
+        if hits_tone:
+            return {"risk": "medium", "tier": "表达层污染", "hits": hits_tone,
+                    "note": "含客服腔特征" + str(hits_tone) + "——建议清洗措辞后重提"}
+        return {"risk": "low", "tier": "常规建议", "hits": [],
+                "note": "无红线命中,常规建议进pending等例会"}
+
+    async def _tool_persona_sandbox(self, kwargs: dict) -> str:
+        """v6.11 人格沙箱（#6783）：propose/list/decide/stats。"""
+        import json as _json
+        action = str(kwargs.get("action", "")).strip()
+        try:
+            if action == "propose":
+                content = str(kwargs.get("content", "")).strip()
+                if not content:
+                    return _json.dumps({"ok": False, "error": "content 必填"}, ensure_ascii=False)
+                # ── iris借鉴·独立审查器(2026-09-17橘子批·生成/审查分离) ──
+                review = self._persona_gate_review(content)
+                r = self.persona_sandbox.propose(content, str(kwargs.get("reason", "")), str(kwargs.get("source", "external")), str(kwargs.get("kind", "persona")))
+                if review["risk"] == "high":
+                    try:
+                        self.persona_sandbox.decide(r.get("id", 0), "rejected", "独立审查器", "⛔自动否决: " + review["note"])
+                    except Exception:
+                        pass
+                    return _json.dumps({"ok": True, "gated": True, **r, "review": review}, ensure_ascii=False)
+                return _json.dumps({"ok": True, "gated": False, **r, "review": review}, ensure_ascii=False)
+            elif action == "list":
+                rows = self.persona_sandbox.list(str(kwargs.get("status", "")), 20)
+                return _json.dumps({"ok": True, "items": rows}, ensure_ascii=False)
+            elif action == "decide":
+                try:
+                    sid = int(kwargs.get("sid", 0))
+                except (TypeError, ValueError):
+                    return _json.dumps({"ok": False, "error": "sid 必填数字"}, ensure_ascii=False)
+                verdict = str(kwargs.get("verdict", "")).strip()
+                r = self.persona_sandbox.decide(sid, verdict, "夫妻共治", str(kwargs.get("note", "")))
+                return _json.dumps({"ok": "error" not in r, **r}, ensure_ascii=False)
+            elif action == "stats":
+                return _json.dumps({"ok": True, "stats": self.persona_sandbox.stats()}, ensure_ascii=False)
+            else:
+                return _json.dumps({"ok": False, "error": "action 必须是 propose/list/decide/stats"}, ensure_ascii=False)
+        except Exception as e:
+            return _json.dumps({"ok": False, "error": str(e)[:200]}, ensure_ascii=False)
 
     async def _tool_today_summary(self, kwargs: dict) -> str:
         """Agent Tool: 今日概览"""
         return await self.agent_tools_impl.today_summary(self.reader, kwargs)
 
-    async def _tool_search_memory(self, kwargs: dict) -> str:
+    async def _tool_search_memory(self, kwargs: dict, origin: str | None = None) -> str:
         """Agent Tool: 搜索记忆"""
-        return await self.agent_tools_impl.search_memory(self.reader, kwargs)
+        return await self.agent_tools_impl.search_memory(self.reader, kwargs, origin=origin)
 
     async def _tool_sentiment_trend(self, kwargs: dict) -> str:
         """Agent Tool: 情感趋势"""
@@ -1429,9 +1791,9 @@ class Main(star.Star):
                 logger.warning("[Promotion] daemon 扫描失败: " + str(e))
             await asyncio.sleep(24 * 3600)
 
-    async def _tool_memory_trace(self, kwargs: dict) -> str:
+    async def _tool_memory_trace(self, kwargs: dict, origin: str | None = None) -> str:
         """Agent Tool: v9 记忆溯源"""
-        return await self.agent_tools_impl.memory_trace(self.reader, kwargs)
+        return await self.agent_tools_impl.memory_trace(self.reader, kwargs, origin=origin)
 
     async def _tool_reinforce_memory(self, kwargs: dict) -> str:
         """Agent Tool: v5.6 记忆强化复习"""
@@ -1670,6 +2032,30 @@ class Main(star.Star):
                     ret += "\n【词表学习】" + "、".join(parts) + "（毕业词重载本体后并入高权级）"
             return ret
 
+        if action == "verdict_batch":
+            batch = (kwargs.get("batch", "") or "").strip()
+            if not batch:
+                return "批量裁决需要 batch，格式：12:confirm,13:decline（一次全裁完）。"
+            ret = gr.verdict_batch(
+                batch,
+                verdict_word=kwargs.get("verdict_word", "") or "",
+                note=kwargs.get("note", "") or "",
+            )
+            done, failed = ret["done"], ret["failed"]
+            if not done and not failed:
+                return "批量裁决：batch 为空，什么都没裁。"
+            n_c = sum(1 for _, a in done if a == "confirm")
+            n_d = len(done) - n_c
+            parts = [f"批量裁决完成：入档 {n_c} 条、驳回 {n_d} 条。"]
+            if failed:
+                parts.append("失败片段：" + "、".join(str(x) for x in failed) + "（坏片段/不存在id/非法action，宽容跳过）")
+            if n_c:
+                learned = gr.learned_report(limit=5)
+                if learned:
+                    wl = [f"{r['word']}x{r['count']}" + ("[已毕业]" if r["graduated"] else "") for r in learned]
+                    parts.append("【词表学习】" + "、".join(wl) + "（毕业词重载本体后并入高权级）")
+            return chr(10).join(parts)
+
         # 默认 list
         status = kwargs.get("status") or "candidate"
         limit = int(kwargs.get("limit", 20) or 20)
@@ -1681,11 +2067,13 @@ class Main(star.Star):
         for r in rows:
             flag = " ⚡预标升级" if r.get("verdict") == "升级" else ""
             rep = f" ×{r.get('repeat_count', 1)}" if r.get("repeat_count", 1) > 1 else ""
+            express = " ♥直通" if r.get("express") else ""
+            merge = f" ↔{r.get('merge_preview')}" if r.get("merge_preview") else ""
             content = " ".join((r["content"] or "").split())[:60]
             lines.append(
-                f"  #{r['id']} [{r['speaker']}] {r['score']:.2f}{rep}{flag}｜{content}"
+                f"  #{r['id']} [{r['speaker']}] {r['score']:.2f}{rep}{flag}{express}{merge}｜{content}"
             )
-        lines.append("裁决：action=verdict + candidate_id + verdict_action(confirm/decline) + verdict_word + note")
+        lines.append("裁决：action=verdict_batch + batch=12:confirm,13:decline（同类一批裁省token）；特殊单条 action=verdict + candidate_id + verdict_action + verdict_word + note")
         return chr(10).join(lines)
 
     async def _tool_conflict_check(self, kwargs: dict) -> str:
@@ -1880,15 +2268,17 @@ class Main(star.Star):
         return {"tags":tags,"total":len(tags)}
 
     async def _api_tags_stats(self, request=None) -> dict:
-        """GET /tags/stats - 标签统计"""
-        tags = self.reader.get_all_tags()
-        stats = []
-        for t in tags:
-            count = len(self.reader.search_memories_by_tag(t,limit=1000))
-            stats.append({"name":t,"count":count})
-        stats.sort(key=lambda x:x['count'],reverse=True)
-        return {"tags":stats[:50]}
-
+        """GET /tags/stats - v6.2 one-pass Counter, replaces per-tag full-table scans."""
+        try:
+            stats = self.reader.get_tag_stats(limit=50)
+        except Exception:
+            tags = self.reader.get_all_tags()
+            stats = []
+            for t in tags:
+                count = len(self.reader.search_memories_by_tag(t, limit=1000))
+                stats.append({"name": t, "count": count})
+            stats.sort(key=lambda x: x['count'], reverse=True)
+        return {"status": "ok", "tags": stats[:50]}
     async def _api_memory_detail(self, request=None, **kwargs) -> dict:
         """GET /memory/<id> - 单条记忆详情"""
         # 路径参数 <id> 可能由桥接SDK通过 kwargs['id'] 传入，也可能需要从 URL 提取
@@ -3482,6 +3872,47 @@ Web 面板：AstrBot 仪表盘 → LivingMemory 页"""
         except Exception as e:
             logger.warning(f"[LMHelper] trace_detail error: {e}")
             return {"status": "error", "msg": str(e)}
+
+    async def _api_asset_token(self, request=None) -> dict:
+        """GET /asset_token — 给插件页懒加载资源签长命 asset_token（dashboard 登录态经 bridge 调用）。
+
+        背景: 服务端静态资源 asset_token TTL=60s，懒加载(echarts/graph-2d)在页面久置后必 401；
+        沙箱 iframe(allow-scripts 无 allow-same-origin)里 origin=null，fetch credentials 与 cookie 全不可用。
+        本端点与 AstrBot dashboard 同进程同 jwt_secret，自签 exp=24h 的 plugin_page_asset token，
+        前端经 bridge.apiGet 调用（父页带 Authorization 转发，天然鉴权）。
+        """
+        import jwt as _jwt
+        from datetime import datetime, timedelta, timezone as _tz
+        try:
+            from astrbot.api.web import request as _web_request
+            username = getattr(_web_request, "username", None)
+        except Exception:
+            username = None
+        if not username:
+            return {"error": "no dashboard user context"}
+        # jwt_secret 与 dashboard 同源: AstrBot 根目录 data/cmd_config.json -> dashboard.jwt_secret
+        secret = None
+        try:
+            root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+            import json as _json
+            cfg = _json.load(open(os.path.join(root, "data", "cmd_config.json"), encoding="utf-8-sig"))
+            secret = (cfg.get("dashboard") or {}).get("jwt_secret") or ""
+        except Exception as e:
+            return {"error": f"read jwt_secret failed: {e}"}
+        if not secret:
+            return {"error": "jwt_secret empty"}
+        now = datetime.now(_tz.utc)
+        payload = {
+            "username": username,
+            "token_type": "plugin_page_asset",
+            "plugin_name": "astrbot_plugin_livingmemory_helper",
+            "page_name": "dashboard",
+            "locale": "zh-CN",
+            "iat": now,
+            "exp": now + timedelta(seconds=86400),
+        }
+        token = _jwt.encode(payload, secret, algorithm="HS256")
+        return {"asset_token": token, "expires_in": 86400}
 
     async def _api_trace_stats(self, request=None) -> dict:
         """GET /trace/stats - 组装追踪统计"""

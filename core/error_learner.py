@@ -200,6 +200,8 @@ class ErrorLearner:
                 "key_facts": [content[:80]],
                 "sentiment": "neutral",
                 "interaction_type": "plugin",
+                # P0-3 Provenance: 错误教训=修复实战沉淀, 属 internal
+                "source": "internal",
                 "canonical_summary": content,
                 "persona_summary": content,
                 "summary_schema_version": "v2",

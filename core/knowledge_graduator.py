@@ -168,6 +168,7 @@ class KnowledgeGraduator:
         knowledge_type: str = KnowledgeType.TECHNICAL,
         tags: list = None,
         importance: float = 0.8,
+        applicability: str = "",
     ) -> dict:
         """提议一条知识为毕业候选。
 
@@ -215,14 +216,14 @@ class KnowledgeGraduator:
             c = conn.execute(
                 """INSERT INTO graduated_knowledge
                    (title, background, conclusion, source_type, source_id, source_ids,
-                    knowledge_type, status, tags, importance, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    knowledge_type, status, tags, importance, created_at, updated_at, applicability)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     title, background, conclusion,
                     source_type, source_id, json.dumps([source_id] if source_id else []),
                     knowledge_type, GraduationStatus.CANDIDATE,
                     json.dumps(tags or [], ensure_ascii=False),
-                    importance, now, now,
+                    importance, now, now, applicability,
                 ),
             )
             conn.commit()
@@ -796,8 +797,12 @@ class KnowledgeGraduator:
 
     # v6.1: 审查 checklist — 借鉴 Cairn review 流程
 
-    def review_checklist(self, knowledge_id: int) -> dict:
-        """生成审查清单 — confirm 前展示给橘子，确保每条知识经过标准化审查。"""
+    def review_checklist(self, knowledge_id: int, applicability_override: str = None) -> dict:
+        """生成审查清单 — confirm 前展示给橘子，确保每条知识经过标准化审查。
+
+        v6.2: applicability_override — confirm 调用带来的边界文本，优先于候选区存量。
+        修复 4/5 死循环：候选边界恒空 + 写入只在毕业时 = 鸡蛋死锁（test_knowledge_confirm.py）。
+        """
         conn = self._connect()
         try:
             row = conn.execute(
@@ -826,11 +831,12 @@ class KnowledgeGraduator:
                 'detail': '结论长度: ' + str(len(conclusion)) + ' | 含项目特定词: ' + str(project_specific),
             })
 
-            # 3. 适用边界是否标注
-            applicability_ok = bool(d.get('applicability', '').strip())
+            # 3. 适用边界是否标注（v6.2: 优先本次调用带来的 override）
+            boundary_val = str(applicability_override or '').strip() or str(d.get('applicability', '') or '').strip()
+            applicability_ok = bool(boundary_val)
             checks.append({
                 'item': '适用边界已标注', 'passed': applicability_ok,
-                'detail': d.get('applicability', '(未标注)')[:80],
+                'detail': boundary_val[:80] if boundary_val else '(未标注)',
             })
 
             # 4. 是否与已有知识矛盾
